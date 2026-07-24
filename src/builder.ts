@@ -3,6 +3,39 @@ import { bigintSafeStringify } from './utils.js';
 export interface SubmitOptions {
   maxRetries?: number;
   retryDelayMs?: number;
+  /** Max concurrent in-flight submissions. Default 10. */
+  concurrency?: number;
+  /** Max pending queue size before backpressure kicks in. Default 100. */
+  maxQueueSize?: number;
+}
+
+const DEFAULT_CONCURRENCY = 10;
+const DEFAULT_MAX_QUEUE_SIZE = 100;
+
+class Semaphore {
+  private _running = 0;
+  private _queue: Array<() => void> = [];
+  private readonly _max: number;
+
+  constructor(max: number) {
+    this._max = max;
+  }
+
+  async acquire(): Promise<void> {
+    if (this._running < this._max) {
+      this._running++;
+      return;
+    }
+    return new Promise<void>(resolve => { this._queue.push(resolve); });
+  }
+
+  release(): void {
+    this._running--;
+    if (this._queue.length > 0) {
+      this._running++;
+      this._queue.shift()!();
+    }
+  }
 }
 
 /** Fluent builder for constructing stream configurations. */
@@ -16,6 +49,13 @@ export class StreamBuilder {
   private pendingQueue: Array<Record<string, unknown>> = [];
   private activeTimers: Set<NodeJS.Timeout> = new Set();
   private isDestroyed = false;
+  private _semaphore: Semaphore;
+  private _maxQueueSize: number;
+
+  constructor(options?: { concurrency?: number; maxQueueSize?: number }) {
+    this._semaphore = new Semaphore(options?.concurrency ?? DEFAULT_CONCURRENCY);
+    this._maxQueueSize = options?.maxQueueSize ?? DEFAULT_MAX_QUEUE_SIZE;
+  }
 
   /**
    * Sets the token contract address for the stream.
@@ -120,8 +160,8 @@ export class StreamBuilder {
   }
 
   /**
-   * Submit built payload over network with automatic retries and payload queueing
-   * to guarantee no payload is silently dropped during network interruptions.
+   * Submit built payload over network with automatic retries, payload queueing,
+   * and concurrency control to prevent degradation under high load.
    */
   async submit(
     submitFn: (payload: Record<string, unknown>) => Promise<unknown>,
@@ -134,47 +174,62 @@ export class StreamBuilder {
       throw new Error('submitFn must be a valid function');
     }
 
+    // Backpressure: reject if queue is full
+    if (this.pendingQueue.length >= this._maxQueueSize) {
+      throw new Error(
+        `StreamBuilder queue is full (${this._maxQueueSize} pending). ` +
+        'Retry later or increase maxQueueSize.'
+      );
+    }
+
     const payload = this.build();
     this.pendingQueue.push(payload as unknown as Record<string, unknown>);
 
     const maxRetries = options.maxRetries ?? 3;
-    const retryDelay = options.retryDelayMs ?? 100;
-    let attempt = 0;
-    let lastError: Error | unknown;
+    const baseRetryDelay = options.retryDelayMs ?? 100;
 
-    while (attempt <= maxRetries) {
-      if (this.isDestroyed) {
-        throw new Error('StreamBuilder was destroyed during submission');
+    await this._semaphore.acquire();
+    try {
+      let attempt = 0;
+      let lastError: Error | unknown;
+
+      while (attempt <= maxRetries) {
+        if (this.isDestroyed) {
+          throw new Error('StreamBuilder was destroyed during submission');
+        }
+
+        try {
+          const result = await submitFn(payload as unknown as Record<string, unknown>);
+          const index = this.pendingQueue.indexOf(payload as unknown as Record<string, unknown>);
+          if (index !== -1) {
+            this.pendingQueue.splice(index, 1);
+          }
+          return result;
+        } catch (err) {
+          lastError = err;
+          attempt++;
+          if (attempt <= maxRetries) {
+            // Exponential backoff: delay doubles each retry
+            const delay = baseRetryDelay * Math.pow(2, attempt - 1);
+            await new Promise<void>((resolve) => {
+              const timer = setTimeout(() => {
+                this.activeTimers.delete(timer);
+                resolve();
+              }, delay);
+              this.activeTimers.add(timer);
+            });
+          }
+        }
       }
 
-      try {
-        const result = await submitFn(payload as unknown as Record<string, unknown>);
-        // On success, dequeue payload from pending queue
-        const index = this.pendingQueue.indexOf(payload as unknown as Record<string, unknown>);
-        if (index !== -1) {
-          this.pendingQueue.splice(index, 1);
-        }
-        return result;
-      } catch (err) {
-        lastError = err;
-        attempt++;
-        if (attempt <= maxRetries) {
-          await new Promise<void>((resolve) => {
-            const timer = setTimeout(() => {
-              this.activeTimers.delete(timer);
-              resolve();
-            }, retryDelay);
-            this.activeTimers.add(timer);
-          });
-        }
-      }
+      throw new Error(
+        `StreamBuilder network payload submission failed after ${maxRetries} retries without payload drop: ${
+          lastError instanceof Error ? lastError.message : String(lastError)
+        }`
+      );
+    } finally {
+      this._semaphore.release();
     }
-
-    throw new Error(
-      `StreamBuilder network payload submission failed after ${maxRetries} retries without payload drop: ${
-        lastError instanceof Error ? lastError.message : String(lastError)
-      }`
-    );
   }
 
   getPendingQueue(): Array<Record<string, unknown>> {
@@ -198,6 +253,13 @@ export class StreamBuilder {
   }
 }
 
+export interface BatchOptions {
+  /** Max operations per batch chunk. Default 50. */
+  maxBatchSize?: number;
+}
+
+const DEFAULT_MAX_BATCH_SIZE = 50;
+
 export class ConduitBatcher {
   /**
    * Bundle multiple stream operations into a single transaction.
@@ -206,8 +268,11 @@ export class ConduitBatcher {
    * strings before further processing so that downstream
    * `JSON.stringify` calls produce valid payloads on Safari / WebKit
    * browsers (which serialise bigint as `{}` instead of throwing).
+   *
+   * When the input exceeds `maxBatchSize`, operations are split into
+   * chunks to prevent degradation under high concurrency.
    */
-  static execute(streams: Record<string, unknown>[]) {
+  static execute(streams: Record<string, unknown>[], options?: BatchOptions) {
     if (!Array.isArray(streams) || streams.length === 0) {
       throw new Error('Streams payload array cannot be null, undefined, or empty');
     }
@@ -217,12 +282,22 @@ export class ConduitBatcher {
       }
     }
 
+    const maxBatchSize = options?.maxBatchSize ?? DEFAULT_MAX_BATCH_SIZE;
     const sanitized = streams.map(bigintSafeStringify);
-    console.log(`Bundling ${sanitized.length} stream operations into a single transaction...`);
-    // Mock Soroban XDR assembly
+
+    // Chunk large batches to prevent degradation
+    const chunks: Record<string, unknown>[][] = [];
+    for (let i = 0; i < sanitized.length; i += maxBatchSize) {
+      chunks.push(sanitized.slice(i, i + maxBatchSize));
+    }
+
+    console.log(`Bundling ${sanitized.length} stream operations into ${chunks.length} chunk(s)...`);
+
+    // Mock Soroban XDR assembly — return chunked results
     return {
       success: true,
       operations: sanitized.length,
+      chunks: chunks.length,
       xdr: 'AAAA...mock...batch...XDR',
     };
   }
