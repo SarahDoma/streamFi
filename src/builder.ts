@@ -283,20 +283,40 @@ export class ConduitBatcher {
   }
 
   /**
-   * Clean up all pending callbacks and mark the batcher as destroyed.
-   * Prevents stale async operations from processing after teardown.
+   * Clean up all pending callbacks and reset state.
+   * Does NOT reset the destroyed flag — use destroy() for permanent teardown.
    */
   static cleanup(): void {
-    ConduitBatcher.isDestroyed = true;
+    ConduitBatcher.processingBatch = false;
 
-    ConduitBatcher.batchQueue.forEach((entry) => {
-      entry.resolve({ success: false, operations: 0, xdr: '', errors: ['ConduitBatcher destroyed'] });
-    });
+    const oldQueue = ConduitBatcher.batchQueue;
     ConduitBatcher.batchQueue = [];
+
+    oldQueue.forEach((entry) => {
+      entry.resolve({ success: false, operations: 0, xdr: '', errors: ['ConduitBatcher cleaned up'] });
+    });
 
     for (const cb of ConduitBatcher.activeCallbacks) {
       cb();
     }
     ConduitBatcher.activeCallbacks.clear();
+  }
+
+  /**
+   * Permanently destroy the batcher. All pending operations are rejected
+   * and subsequent calls to execute/executeAsync will throw.
+   */
+  static destroy(): void {
+    ConduitBatcher.isDestroyed = true;
+    ConduitBatcher.cleanup();
+  }
+
+  /**
+   * Full reset: clears destroyed flag and cleans up pending operations.
+   * Allows the batcher to be reused after destroy.
+   */
+  static reset(): void {
+    ConduitBatcher.isDestroyed = false;
+    ConduitBatcher.cleanup();
   }
 }
