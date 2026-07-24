@@ -148,6 +148,55 @@ describe('StreamBuilder', () => {
 
     expect(builderNeg).toThrow('Invalid StreamBuilder parameter: ratePerSecond');
   });
+
+  it('limits concurrent submissions via semaphore', async () => {
+    let running = 0;
+    let maxRunning = 0;
+    const submitFn = async () => {
+      running++;
+      maxRunning = Math.max(maxRunning, running);
+      await new Promise(r => setTimeout(r, 10));
+      running--;
+      return 'ok';
+    };
+
+    const builder = new StreamBuilder({ concurrency: 3 })
+      .token('CD...')
+      .sender('GA...')
+      .recipient('GB...')
+      .amount(1000);
+
+    // Launch 10 concurrent submissions
+    const promises = Array.from({ length: 10 }, () => builder.submit(submitFn));
+    await Promise.all(promises);
+
+    // Max concurrent should not exceed the semaphore limit
+    expect(maxRunning).toBeLessThanOrEqual(3);
+  });
+
+  it('rejects submissions when queue is full', async () => {
+    const submitFn = async () => {
+      await new Promise(r => setTimeout(r, 100));
+      return 'ok';
+    };
+
+    const builder = new StreamBuilder({ concurrency: 1, maxQueueSize: 2 })
+      .token('CD...')
+      .sender('GA...')
+      .recipient('GB...')
+      .amount(1000);
+
+    // First submission will acquire the semaphore
+    const p1 = builder.submit(submitFn);
+    // Second will be queued
+    const p2 = builder.submit(submitFn);
+    // Third should be rejected (queue full)
+    await expect(builder.submit(submitFn)).rejects.toThrow('queue is full');
+
+    // Clean up
+    await p1;
+    await p2;
+  });
 });
 
 describe('ConduitBatcher', () => {
@@ -170,6 +219,7 @@ describe('ConduitBatcher', () => {
 
     expect(result.success).toBe(true);
     expect(result.operations).toBe(2);
+    expect(result.chunks).toBe(1);
     expect(result.xdr).toBe('AAAA...mock...batch...XDR');
   });
 
@@ -207,12 +257,35 @@ describe('ConduitBatcher', () => {
     expect(result.operations).toBe(3);
   });
 
-  it('returns zero operations for an empty array', () => {
+  it('throws for an empty array', () => {
+    expect(() => ConduitBatcher.execute([])).toThrow('cannot be null, undefined, or empty');
+  });
+
+  it('chunks large batches to prevent degradation', () => {
+    const streams = Array.from({ length: 120 }, (_, i) => ({
+      id: BigInt(i),
+      name: `stream-${i}`,
+    }));
+
     const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-    const result = ConduitBatcher.execute([]);
+    const result = ConduitBatcher.execute(streams, { maxBatchSize: 50 });
     consoleSpy.mockRestore();
 
     expect(result.success).toBe(true);
-    expect(result.operations).toBe(0);
+    expect(result.operations).toBe(120);
+    expect(result.chunks).toBe(3);
+  });
+
+  it('uses default batch size of 50', () => {
+    const streams = Array.from({ length: 55 }, (_, i) => ({
+      id: BigInt(i),
+      name: `stream-${i}`,
+    }));
+
+    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const result = ConduitBatcher.execute(streams);
+    consoleSpy.mockRestore();
+
+    expect(result.chunks).toBe(2);
   });
 });
