@@ -22,4 +22,5 @@ export {
   calculateRate,
   streamProgress,
   withdrawableLocal,
+  bigintSafeStringify,
 } from './utils.js';

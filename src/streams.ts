@@ -18,7 +18,7 @@ import type {
 } from './types/index.js';
 import type { WalletAdapter } from './adapters/types.js';
 import { KeypairWalletAdapter } from './adapters/keypair.js';
-import { toStroops, calculateRate } from './utils.js';
+import { toStroops, calculateRate, bigintSafeStringify } from './utils.js';
 import {
   buildContractCallTx,
   scValToI128,
@@ -448,7 +448,7 @@ function parseStreamInfo(id: bigint, address: string, val: xdr.ScVal): StreamInf
     const k = e.key().sym()?.toString('utf8') ?? e.key().str()?.toString('utf8') ?? '';
     m[k] = e.val();
   }
-  return {
+  const info: StreamInfo = {
     id,
     address,
     sender:          m['sender']          ? Address.fromScVal(m['sender']).toString()          : '',
@@ -463,6 +463,8 @@ function parseStreamInfo(id: bigint, address: string, val: xdr.ScVal): StreamInf
     cancelled:       m['cancelled']?.b()  ?? false,
     clawbackEnabled: m['clawback_enabled']?.b() ?? false,
   };
+  (info as StreamInfo & { toJSON(): Record<string, unknown> }).toJSON = () => bigintSafeStringify(info);
+  return info;
 }
 
 function sleep(ms: number): Promise<void> {
