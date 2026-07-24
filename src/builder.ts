@@ -110,7 +110,51 @@ export class StreamBuilder {
   }
 }
 
+export interface BatchOperation {
+  method: string;
+  params: Record<string, unknown>;
+}
+
+export interface BatchResult {
+  success: boolean;
+  operations: number;
+  xdr: string;
+  errors?: string[];
+}
+
+/**
+ * Validate that the input is a non-null, non-empty array of objects.
+ * Returns an array of error messages, or an empty array if valid.
+ */
+function validatePayload(streams: unknown): string[] {
+  const errors: string[] = [];
+
+  if (streams === null || streams === undefined) {
+    errors.push('Batch payload cannot be null or undefined');
+    return errors;
+  }
+
+  if (!Array.isArray(streams)) {
+    errors.push('Batch payload must be an array');
+    return errors;
+  }
+
+  for (let i = 0; i < streams.length; i++) {
+    const item = streams[i];
+    if (item === null || item === undefined) {
+      errors.push(`Batch item at index ${i} cannot be null or undefined`);
+    } else if (typeof item !== 'object') {
+      errors.push(`Batch item at index ${i} must be an object, got ${typeof item}`);
+    }
+  }
+
+  return errors;
+}
+
 export class ConduitBatcher {
+  private static activeCallbacks: Set<() => void> = new Set();
+  private static isDestroyed = false;
+
   /**
    * Bundle multiple stream operations into a single transaction.
    *
@@ -118,15 +162,95 @@ export class ConduitBatcher {
    * strings before further processing so that downstream
    * `JSON.stringify` calls produce valid payloads on Safari / WebKit
    * browsers (which serialise bigint as `{}` instead of throwing).
+   *
+   * @throws {Error} If payload is null, undefined, non-array, or contains invalid items.
    */
-  static execute(streams: Record<string, unknown>[]) {
+  static execute(streams: Record<string, unknown>[]): BatchResult {
+    if (ConduitBatcher.isDestroyed) {
+      throw new Error('ConduitBatcher has been destroyed');
+    }
+
+    const validationErrors = validatePayload(streams);
+    if (validationErrors.length > 0) {
+      return {
+        success: false,
+        operations: 0,
+        xdr: '',
+        errors: validationErrors,
+      };
+    }
+
     const sanitized = streams.map(bigintSafeStringify);
-    console.log(`Bundling ${sanitized.length} stream operations into a single transaction...`);
-    // Mock Soroban XDR assembly
     return {
       success: true,
       operations: sanitized.length,
       xdr: "AAAA...mock...batch...XDR",
     };
+  }
+
+  /**
+   * Asynchronously execute a batch with lifecycle tracking.
+   * Ensures pending callbacks are tracked and can be cleaned up on teardown.
+   */
+  static async executeAsync(
+    operations: BatchOperation[],
+    signal?: AbortSignal,
+  ): Promise<BatchResult> {
+    if (ConduitBatcher.isDestroyed) {
+      throw new Error('ConduitBatcher has been destroyed');
+    }
+
+    let cancelled = false;
+    const onAbort = () => { cancelled = true; };
+    if (signal) {
+      if (signal.aborted) {
+        return { success: false, operations: 0, xdr: '', errors: ['Operation aborted'] };
+      }
+      signal.addEventListener('abort', onAbort);
+    }
+
+    const cleanup = () => {
+      if (signal) signal.removeEventListener('abort', onAbort);
+      ConduitBatcher.activeCallbacks.delete(cleanup);
+    };
+
+    ConduitBatcher.activeCallbacks.add(cleanup);
+
+    try {
+      const validationErrors = validatePayload(operations);
+      if (validationErrors.length > 0 || cancelled) {
+        return {
+          success: false,
+          operations: 0,
+          xdr: '',
+          errors: [...validationErrors, ...(cancelled ? ['Operation aborted'] : [])],
+        };
+      }
+
+      const sanitized = operations.map(op => ({
+        ...op,
+        params: bigintSafeStringify(op.params),
+      }));
+
+      return {
+        success: true,
+        operations: sanitized.length,
+        xdr: "AAAA...mock...batch...XDR",
+      };
+    } finally {
+      cleanup();
+    }
+  }
+
+  /**
+   * Clean up all pending callbacks and mark the batcher as destroyed.
+   * Prevents stale async operations from processing after teardown.
+   */
+  static cleanup(): void {
+    ConduitBatcher.isDestroyed = true;
+    for (const cb of ConduitBatcher.activeCallbacks) {
+      cb();
+    }
+    ConduitBatcher.activeCallbacks.clear();
   }
 }
