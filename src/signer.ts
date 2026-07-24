@@ -43,13 +43,19 @@ function validateTimeout(timeoutMs: number): number {
   return Math.min(Math.floor(timeoutMs), MAX_TIMEOUT_MS);
 }
 
-function validatePayloadSize(payload: unknown, maxSize: number): void {
-  if (payload === null || payload === undefined) return;
-  const size = JSON.stringify(payload).length;
-  if (size > maxSize) {
-    throw new Error(`Transaction payload exceeds maximum size of ${maxSize} bytes`);
+function validatePayloadSize(maxSize: number): number {
+  if (!Number.isFinite(maxSize) || maxSize <= 0) {
+    return MAX_PAYLOAD_SIZE;
   }
+  return Math.min(Math.floor(maxSize), MAX_PAYLOAD_SIZE);
 }
+
+function validatePayloadSizeBytes(payload: unknown, maxSize: number): void {
+    const size = JSON.stringify(payload).length;
+    if (size > maxSize) {
+      throw new Error(`Transaction payload exceeds maximum size of ${maxSize} bytes`);
+    }
+  }
 
 export class TransactionSigner implements Signer {
   private walletAdapter: WalletAdapter | undefined;
@@ -64,7 +70,7 @@ export class TransactionSigner implements Signer {
     this.walletAdapter = options.walletAdapter;
     this.rpcProvider = options.rpcProvider;
     this.timeoutMs = validateTimeout(options.timeoutMs);
-    this.maxPayloadSize = validateTimeout(options.maxPayloadSize) * 1024 || MAX_PAYLOAD_SIZE;
+    this.maxPayloadSize = validatePayloadSize(options.maxPayloadSize);
   }
 
   /**
@@ -112,7 +118,7 @@ export class TransactionSigner implements Signer {
 
     // Validate transaction payload size
     try {
-      validatePayloadSize(tx.toXDR(), this.maxPayloadSize);
+      validatePayloadSizeBytes(tx.toXDR(), this.maxPayloadSize);
     } catch {
       // If XDR serialization fails, skip size validation
     }
@@ -135,6 +141,7 @@ export class TransactionSigner implements Signer {
 
       const timer = setTimeout(() => {
         cleanup();
+        this.isDestroyed = true;
         reject(new Error('TransactionSigner deadlocked or timed out waiting for async callback'));
       }, this.timeoutMs);
 
