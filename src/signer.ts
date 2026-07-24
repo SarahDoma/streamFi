@@ -149,6 +149,8 @@ export class TransactionSigner implements Signer {
   }
 
   cleanup(): void {
+    if (this.isDestroyed) return; // Already cleaned up
+    
     this.isDestroyed = true;
     const rejects = Array.from(this.pendingPromises.values());
     this.pendingPromises.clear();
@@ -164,3 +166,4 @@ export class TransactionSigner implements Signer {
     return (this.walletAdapter as any).publicKey || '';
   }
 }
+
