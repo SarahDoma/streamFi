@@ -100,7 +100,7 @@ export class WebSocketRelayer {
         };
 
         ws.onmessage = (event: MessageEvent) => {
-          this.handleMessage(event.data);
+          this.handleMessageSafe(event.data);
         };
 
         ws.onclose = () => {
@@ -159,6 +159,63 @@ export class WebSocketRelayer {
     }
   }
 
+  private async safeInvokeHandler(handler: MessageHandler, msg: WebSocketMessage): Promise<void> {
+    try {
+      const result = handler(msg);
+      if (result && typeof (result as Promise<void>).catch === 'function') {
+        await (result as Promise<void>).catch((err: Error) => {
+          console.warn('[WebSocketRelayer] async handler error:', err);
+        });
+      }
+    } catch (err) {
+      console.warn('[WebSocketRelayer] handler error:', err);
+    }
+  }
+
+  private handleMessageSafe(data: string): void {
+    if (data === null || data === undefined) return;
+
+    let parsed: WebSocketMessage;
+    try {
+      parsed = JSON.parse(data) as WebSocketMessage;
+    } catch {
+      return;
+    }
+
+    if (!parsed || typeof parsed !== 'object' || !parsed.type || typeof parsed.type !== 'string') return;
+
+    const typeHandlers = this.handlers.get(parsed.type);
+    if (!typeHandlers) return;
+
+    for (const handler of typeHandlers) {
+      this.safeInvokeHandler(handler, parsed);
+    }
+  }
+
+  private async safeInvokeHandler(handler: MessageHandler, msg: WebSocketMessage): Promise<void> {
+    try {
+      const result = handler(msg);
+      if (result && typeof (result as Promise<void>).catch === 'function') {
+        await (result as Promise<void>).catch((err: Error) => {
+          console.warn('[WebSocketRelayer] async handler error:', err);
+        });
+      }
+    } catch (err) {
+      console.warn('[WebSocketRelayer] handler error:', err);
+    }
+  }
+
+  /** Idempotency guard: only reconnect if not already connected or reconnecting */
+  private shouldAttemptReconnect(): boolean {
+    return (
+      !this.isDestroyed &&
+      this.reconnectAttempts < this.maxReconnectAttempts &&
+      (!this.ws || this.ws.readyState !== 1)
+    );
+  }
+
+  private flushPendingMessages(): void {
+
   private flushPendingMessages(): void {
     const pending = this.pendingMessages;
     this.pendingMessages = [];
@@ -168,13 +225,11 @@ export class WebSocketRelayer {
   }
 
   private async attemptReconnect(): Promise<void> {
-    if (this.isDestroyed) return;
-    if (this.reconnectAttempts >= this.maxReconnectAttempts) return;
+    if (!this.shouldAttemptReconnect()) return;
 
     await this.acquireLock();
     try {
-      if (this.isDestroyed) return;
-      if (this.reconnectAttempts >= this.maxReconnectAttempts) return;
+      if (!this.shouldAttemptReconnect()) return;
 
       this.reconnectAttempts++;
       await new Promise((r) => setTimeout(r, this.reconnectDelayMs * this.reconnectAttempts));
