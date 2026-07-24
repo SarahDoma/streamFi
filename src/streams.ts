@@ -330,7 +330,17 @@ export class StreamsModule {
       .then(sub => { if (!stopped) inner = sub; else sub.unsubscribe(); })
       .catch(err => console.warn('[conduit-sdk] subscribe error:', err));
 
-    return { unsubscribe: () => { stopped = true; inner?.unsubscribe(); } };
+    return {
+      unsubscribe: () => {
+        stopped = true;
+        if (inner) {
+          inner.unsubscribe();
+          inner = null;
+        }
+        // Release handler references to prevent memory leaks
+        handlers = {};
+      },
+    };
   }
 
   // ── Private helpers ──────────────────────────────────────────────────────
