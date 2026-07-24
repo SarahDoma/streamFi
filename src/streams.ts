@@ -473,7 +473,7 @@ function parseStreamInfo(id: bigint, address: string, val: xdr.ScVal): StreamInf
     cancelled:       m['cancelled']?.b()  ?? false,
     clawbackEnabled: m['clawback_enabled']?.b() ?? false,
   };
-  (info as StreamInfo & { toJSON(): Record<string, unknown> }).toJSON = () => bigintSafeStringify(info);
+  (info as StreamInfo & { toJSON(): Record<string, unknown> }).toJSON = () => bigintSafeStringify(info as unknown as Record<string, unknown>);
   return info;
 }
 
