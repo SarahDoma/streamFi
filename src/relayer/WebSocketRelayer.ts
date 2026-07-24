@@ -84,14 +84,34 @@ export class WebSocketRelayer {
     }
   }
 
+  private wsCtor(): typeof WebSocket | null {
+    if (typeof globalThis !== 'undefined' && 'WebSocket' in globalThis) {
+      return (globalThis as any).WebSocket as typeof WebSocket;
+    }
+    if (typeof WebSocket !== 'undefined') {
+      return WebSocket;
+    }
+    return null;
+  }
+
   private async establishConnection(): Promise<void> {
-    if (typeof WebSocket === 'undefined') {
+    const WebSocketCtor = this.wsCtor();
+    if (!WebSocketCtor) {
       return;
     }
 
     return new Promise((resolve, reject) => {
       try {
-        const ws = new WebSocket(this.url);
+        let ws: any;
+        try {
+          ws = new (WebSocketCtor as any)(this.url);
+        } catch {
+          ws = (WebSocketCtor as any)(this.url);
+        }
+        if (!ws) {
+          resolve();
+          return;
+        }
 
         ws.onopen = () => {
           this.reconnectAttempts = 0;
@@ -121,42 +141,6 @@ export class WebSocketRelayer {
         reject(err);
       }
     });
-  }
-
-  private handleMessage(data: string): void {
-    try {
-      if (data === null || data === undefined) {
-        return;
-      }
-
-      let parsed: WebSocketMessage;
-      try {
-        parsed = JSON.parse(data) as WebSocketMessage;
-      } catch {
-        return;
-      }
-
-      if (!parsed || typeof parsed !== 'object' || !parsed.type) {
-        return;
-      }
-
-      const typeHandlers = this.handlers.get(parsed.type);
-      if (!typeHandlers) return;
-
-      for (const handler of typeHandlers) {
-        try {
-          const result = handler(parsed);
-          if (result && typeof result.catch === 'function') {
-            result.catch((err: Error) => {
-              console.warn('[WebSocketRelayer] async handler error:', err);
-            });
-          }
-        } catch (err) {
-          console.warn('[WebSocketRelayer] sync handler error:', err);
-        }
-      }
-    } catch {
-    }
   }
 
   private async safeInvokeHandler(handler: MessageHandler, msg: WebSocketMessage): Promise<void> {
@@ -213,8 +197,6 @@ export class WebSocketRelayer {
       (!this.ws || this.ws.readyState !== 1)
     );
   }
-
-  private flushPendingMessages(): void {
 
   private flushPendingMessages(): void {
     const pending = this.pendingMessages;
