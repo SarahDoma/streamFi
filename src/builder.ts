@@ -151,9 +151,17 @@ function validatePayload(streams: unknown): string[] {
   return errors;
 }
 
+interface PendingBatch {
+  operations: BatchOperation[];
+  signal?: AbortSignal;
+  resolve: (result: BatchResult) => void;
+}
+
 export class ConduitBatcher {
   private static activeCallbacks: Set<() => void> = new Set();
   private static isDestroyed = false;
+  private static batchQueue: PendingBatch[] = [];
+  private static processingBatch = false;
 
   /**
    * Bundle multiple stream operations into a single transaction.
@@ -200,46 +208,78 @@ export class ConduitBatcher {
       throw new Error('ConduitBatcher has been destroyed');
     }
 
-    let cancelled = false;
-    const onAbort = () => { cancelled = true; };
-    if (signal) {
-      if (signal.aborted) {
-        return { success: false, operations: 0, xdr: '', errors: ['Operation aborted'] };
-      }
-      signal.addEventListener('abort', onAbort);
-    }
+    return new Promise<BatchResult>((resolve) => {
+      const entry: PendingBatch = { operations, signal, resolve };
+      ConduitBatcher.batchQueue.push(entry);
 
-    const cleanup = () => {
-      if (signal) signal.removeEventListener('abort', onAbort);
-      ConduitBatcher.activeCallbacks.delete(cleanup);
-    };
-
-    ConduitBatcher.activeCallbacks.add(cleanup);
-
-    try {
-      const validationErrors = validatePayload(operations);
-      if (validationErrors.length > 0 || cancelled) {
-        return {
-          success: false,
-          operations: 0,
-          xdr: '',
-          errors: [...validationErrors, ...(cancelled ? ['Operation aborted'] : [])],
-        };
-      }
-
-      const sanitized = operations.map(op => ({
-        ...op,
-        params: bigintSafeStringify(op.params),
-      }));
-
-      return {
-        success: true,
-        operations: sanitized.length,
-        xdr: "AAAA...mock...batch...XDR",
+      const cleanup = () => {
+        ConduitBatcher.activeCallbacks.delete(cleanup);
       };
-    } finally {
+      ConduitBatcher.activeCallbacks.add(cleanup);
+
+      if (!ConduitBatcher.processingBatch) {
+        ConduitBatcher.processQueue();
+      }
+
       cleanup();
+    });
+  }
+
+  private static async processQueue(): Promise<void> {
+    if (ConduitBatcher.processingBatch || ConduitBatcher.isDestroyed) return;
+    ConduitBatcher.processingBatch = true;
+
+    while (ConduitBatcher.batchQueue.length > 0 && !ConduitBatcher.isDestroyed) {
+      const entry = ConduitBatcher.batchQueue.shift();
+      if (!entry) continue;
+
+      const { operations: ops, signal, resolve } = entry;
+
+      let cancelled = false;
+      const onAbort = () => { cancelled = true; };
+      if (signal) {
+        if (signal.aborted) {
+          cancelled = true;
+        } else {
+          signal.addEventListener('abort', onAbort);
+        }
+      }
+
+      try {
+        if (cancelled) {
+          resolve({ success: false, operations: 0, xdr: '', errors: ['Operation aborted'] });
+          continue;
+        }
+
+        const validationErrors = validatePayload(ops);
+        if (validationErrors.length > 0) {
+          resolve({
+            success: false,
+            operations: 0,
+            xdr: '',
+            errors: validationErrors,
+          });
+          continue;
+        }
+
+        const sanitized = ops.map(op => ({
+          ...op,
+          params: bigintSafeStringify(op.params),
+        }));
+
+        resolve({
+          success: true,
+          operations: sanitized.length,
+          xdr: "AAAA...mock...batch...XDR",
+        });
+      } finally {
+        if (signal && !cancelled) {
+          signal.removeEventListener('abort', onAbort);
+        }
+      }
     }
+
+    ConduitBatcher.processingBatch = false;
   }
 
   /**
@@ -248,6 +288,12 @@ export class ConduitBatcher {
    */
   static cleanup(): void {
     ConduitBatcher.isDestroyed = true;
+
+    ConduitBatcher.batchQueue.forEach((entry) => {
+      entry.resolve({ success: false, operations: 0, xdr: '', errors: ['ConduitBatcher destroyed'] });
+    });
+    ConduitBatcher.batchQueue = [];
+
     for (const cb of ConduitBatcher.activeCallbacks) {
       cb();
     }
