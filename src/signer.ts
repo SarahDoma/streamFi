@@ -221,7 +221,11 @@ export class TransactionSigner implements Signer {
   cleanup(): void {
     this.isDestroyed = true;
     for (const callbackCleanup of this.activeCallbacks) {
-      callbackCleanup();
+      try {
+        callbackCleanup();
+      } catch {
+        // Ignore cleanup errors to ensure all callbacks are attempted
+      }
     }
     this.activeCallbacks.clear();
     this.pendingPromise = null;
