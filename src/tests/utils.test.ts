@@ -23,6 +23,15 @@ describe('toStroops', () => {
     expect(toStroops('1.5')).toBe(15_000_000n);
   });
 
+  it('rounds to nearest instead of truncating', () => {
+    // 1.00000005 should round to 1.0000001 (10000001)
+    expect(toStroops('1.00000005')).toBe(10_000_001n);
+    // 1.99999995 should round to 2.0 (20000000)
+    expect(toStroops('1.99999995')).toBe(20_000_000n);
+    // 0.99999995 should round to 1.0 (10000000)
+    expect(toStroops('0.99999995')).toBe(10_000_000n);
+  });
+
   it('truncates beyond 7 decimals', () => {
     expect(toStroops('1.00000001')).toBe(10_000_000n); // 8th decimal dropped
   });
@@ -60,12 +69,33 @@ describe('calculateRate', () => {
   it('computes rate for 1000 XLM over 30 days', () => {
     const duration = 30 * 24 * 3600; // 2_592_000 seconds
     const rate     = calculateRate('1000', duration);
-    // 1000 XLM = 10_000_000_000 stroops; / 2_592_000 ≈ 3858
-    expect(rate).toBe(10_000_000_000n / BigInt(duration));
+    // 1000 XLM = 10_000_000_000 stroops; / 2_592_000 ≈ 3858 (rounded)
+    const expected = 10_000_000_000n / BigInt(duration);
+    const remainder = 10_000_000_000n % BigInt(duration);
+    const rounded = remainder * 2n >= BigInt(duration) ? expected + 1n : expected;
+    expect(rate).toBe(rounded);
+  });
+
+  it('rounds to nearest instead of truncating', () => {
+    // 10 stroops / 3 seconds = 3.33... → rounds to 3
+    // But 10 % 3 = 1, and 1 * 2 = 2 < 3, so rounds down to 3
+    expect(calculateRate('0.0000010', 3)).toBe(3n);
+    // 11 stroops / 3 seconds = 3.66... → rounds to 4
+    // 11 % 3 = 2, and 2 * 2 = 4 >= 3, so rounds up to 4
+    expect(calculateRate('0.0000011', 3)).toBe(4n);
+    // 100 stroops / 7 seconds = 14.28... → rounds to 14
+    // 100 % 7 = 2, and 2 * 2 = 4 < 7, so rounds down to 14
+    expect(calculateRate('0.0000100', 7)).toBe(14n);
+    // 105 stroops / 7 seconds = 15.0 exactly
+    expect(calculateRate('0.0000105', 7)).toBe(15n);
   });
 
   it('returns 0 for zero deposit', () => {
     expect(calculateRate('0', 3600)).toBe(0n);
+  });
+
+  it('returns 0 for zero duration', () => {
+    expect(calculateRate('1000', 0)).toBe(0n);
   });
 });
 
