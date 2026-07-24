@@ -165,6 +165,7 @@ export class NonceManager {
   }
 
   /** Safe acquisition with retry logic and exponential backoff. */
+  async safeAcquire(
     retries = 3,
     delayMs = 100,
   ): Promise<NonceLock> {
