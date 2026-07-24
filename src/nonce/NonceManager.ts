@@ -157,14 +157,14 @@ export class NonceManager {
     try {
       return await Promise.race([acquirePromise, timeoutPromise]);
     } catch (err) {
-      if (err instanceof Error && err.message.includes('timed out')) {
+      if (err instanceof Error) {
         throw err;
       }
-      throw err;
+      throw new Error(String(err));
     }
   }
 
-  async safeAcquire(
+  /** Safe acquisition with retry logic and exponential backoff. */
     retries = 3,
     delayMs = 100,
   ): Promise<NonceLock> {
