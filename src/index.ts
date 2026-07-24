@@ -13,6 +13,7 @@ export {
 export type { ConduitContract } from './errors.js';
 export * from './types/index.js';
 export * from './adapters/index.js';
+export { NonceManager } from './nonce-manager.js';
 
 // Utils are exported via the /utils subpath export, but also available here
 export {
