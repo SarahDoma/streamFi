@@ -257,13 +257,8 @@ describe('ConduitBatcher', () => {
     expect(result.operations).toBe(3);
   });
 
-  it('returns zero operations for an empty array', () => {
-    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-    const result = ConduitBatcher.execute([]);
-    consoleSpy.mockRestore();
-
-    expect(result.success).toBe(true);
-    expect(result.operations).toBe(0);
+  it('throws for an empty array', () => {
+    expect(() => ConduitBatcher.execute([])).toThrow('cannot be null, undefined, or empty');
   });
 
   it('chunks large batches to prevent degradation', () => {
