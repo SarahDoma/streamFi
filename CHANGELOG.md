@@ -4,6 +4,11 @@ All notable changes are documented here. Format based on [Keep a Changelog](http
 
 ## [Unreleased]
 
+### Fixed
+- **Critical:** Validation bypass in `ConduitBatcher.execute()` — duplicate method definition allowed invalid payloads to bypass client-side validation. Now enforces mandatory schema validation before submission.
+- **Critical:** Unsafe non-null assertions in `WalletConnectAdapter.getPublicKeyFromSession()` — replaced with safe fallback handling using optional chaining and nullish coalescing. Prevents crashes on malformed CAIP-10 formats.
+- RPC timeout handling in `WalletConnectAdapter.connect()` — properly clears timeout promise on success to prevent hanging when network drops during handshake.
+
 ### Planned
 - `@conduit-protocol/react` hooks package (`useStream`, `useWithdraw`, `useStreamList`)
 - Support for `transfer_recipient()` contract function

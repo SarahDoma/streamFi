@@ -8,11 +8,9 @@ export interface Signer {
 
 export class KeypairSigner implements Signer {
   constructor(private readonly keypair: Keypair) {}
-
   sign(tx: Transaction): void {
     tx.sign(this.keypair);
   }
-
   publicKey(): string {
     return this.keypair.publicKey();
   }
@@ -63,6 +61,48 @@ export class TransactionSigner implements Signer {
     return 1;
   }
 
+  async _signTypedData(
+    domain: Record<string, unknown>,
+    types: Record<string, unknown>,
+    value: Record<string, unknown>
+  ): Promise<Record<string, unknown>> {
+    if (this.isDestroyed) {
+      throw new Error('TransactionSigner has been destroyed');
+    }
+    if (domain === null || domain === undefined || typeof domain !== 'object') {
+      throw new Error('EIP-712 domain payload cannot be null or undefined');
+    }
+    if (value === null || value === undefined || typeof value !== 'object') {
+      throw new Error('Typed data value payload cannot be null or undefined');
+    }
+
+    const chainId = await this.getChainId();
+    const dynamicDomain = {
+      ...domain,
+      chainId,
+    };
+
+    return {
+      domain: dynamicDomain,
+      types,
+      value,
+      signature: '0x' + 'ab'.repeat(65),
+    };
+  }
+
+  async signProposal(streams: unknown[]): Promise<Record<string, unknown>> {
+    if (this.isDestroyed) {
+      throw new Error('TransactionSigner has been destroyed');
+    }
+    if (!Array.isArray(streams) || streams.length === 0) {
+      throw new Error('Proposal streams payload cannot be null, undefined, or empty');
+    }
+
+    const domain = { name: 'ConduitBatcher', version: '1' };
+    const types = { Proposal: [{ name: 'streams', type: 'string[]' }] };
+    return this._signTypedData(domain, types, { streams });
+  }
+
   async sign(tx: Transaction): Promise<void> {
     if (this.isDestroyed) {
       throw new Error('TransactionSigner has been destroyed');
@@ -105,48 +145,6 @@ export class TransactionSigner implements Signer {
           reject(err);
         });
     });
-  }
-
-  async _signTypedData(
-    domain: Record<string, unknown>,
-    types: Record<string, unknown>,
-    value: Record<string, unknown>
-  ): Promise<Record<string, unknown>> {
-    if (this.isDestroyed) {
-      throw new Error('TransactionSigner has been destroyed');
-    }
-    if (domain === null || domain === undefined || typeof domain !== 'object') {
-      throw new Error('EIP-712 domain payload cannot be null or undefined');
-    }
-    if (value === null || value === undefined || typeof value !== 'object') {
-      throw new Error('Typed data value payload cannot be null or undefined');
-    }
-
-    const chainId = await this.getChainId();
-    const dynamicDomain = {
-      ...domain,
-      chainId,
-    };
-
-    return {
-      domain: dynamicDomain,
-      types,
-      value,
-      signature: '0x' + 'ab'.repeat(65),
-    };
-  }
-
-  async signProposal(streams: unknown[]): Promise<Record<string, unknown>> {
-    if (this.isDestroyed) {
-      throw new Error('TransactionSigner has been destroyed');
-    }
-    if (!Array.isArray(streams) || streams.length === 0) {
-      throw new Error('Proposal streams payload cannot be null, undefined, or empty');
-    }
-
-    const domain = { name: 'ConduitBatcher', version: '1' };
-    const types = { Proposal: [{ name: 'streams', type: 'string[]' }] };
-    return this._signTypedData(domain, types, { streams });
   }
 
   publicKey(): string {

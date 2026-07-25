@@ -1,7 +1,8 @@
 export { ConduitClient } from './client.js';
 export { StreamBuilder, ConduitBatcher } from './builder.js';
-export { KeypairSigner, TransactionSigner } from './signer.js';
-export type { Signer, TransactionSignerOptions } from './signer.js';
+export { GraphQLIndexer } from './indexer.js';
+export { KeypairSigner } from './signer.js';
+export type { Signer } from './signer.js';
 export {
   ConduitError,
   StreamErrorCode,
@@ -13,7 +14,7 @@ export {
 export type { ConduitContract } from './errors.js';
 export * from './types/index.js';
 export * from './adapters/index.js';
-export { NonceManager } from './nonce-manager.js';
+export { FeeEstimator } from './fee-estimator.js';
 
 // Utils are exported via the /utils subpath export, but also available here
 export {
@@ -22,4 +23,5 @@ export {
   calculateRate,
   streamProgress,
   withdrawableLocal,
+  bigintSafeStringify,
 } from './utils.js';

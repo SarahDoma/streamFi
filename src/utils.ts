@@ -4,8 +4,11 @@ import { StrKey } from '@stellar/stellar-sdk';
 /** Convert a display amount string to stroops (bigint) */
 export function toStroops(amount: string, decimals = 7): bigint {
   const [whole = '0', frac = ''] = amount.split('.');
-  const fracPadded = frac.slice(0, decimals).padEnd(decimals, '0');
-  return BigInt(whole) * BigInt(10 ** decimals) + BigInt(fracPadded);
+  const fracPadded = frac.slice(0, decimals + 1).padEnd(decimals + 1, '0');
+  const fracValue = BigInt(fracPadded);
+  const roundingDigit = Number(fracPadded[decimals] ?? '0');
+  const roundedFrac = roundingDigit >= 5 ? fracValue / 10n + 1n : fracValue / 10n;
+  return BigInt(whole) * BigInt(10 ** decimals) + roundedFrac;
 }
 
 /** Convert stroops (bigint) to a display amount string */
@@ -26,7 +29,12 @@ export function fromStroops(stroops: bigint, decimals = 7): string {
  */
 export function calculateRate(depositAmount: string, durationSecs: number, decimals = 7): bigint {
   const stroops = toStroops(depositAmount, decimals);
-  return stroops / BigInt(durationSecs);
+  const divisor = BigInt(durationSecs);
+  if (divisor === 0n) return 0n;
+  const quotient = stroops / divisor;
+  const remainder = stroops % divisor;
+  // Round to nearest: if remainder >= half the divisor, round up
+  return remainder * 2n >= divisor ? quotient + 1n : quotient;
 }
 
 /**
@@ -56,8 +64,10 @@ export function withdrawableLocal(stream: StreamInfo, nowSec = Math.floor(Date.n
 
   if (effectiveNow < stream.startTime) return 0n;
 
-  const elapsed  = BigInt(effectiveNow - stream.startTime);
-  const streamed = stream.ratePerSecond * elapsed;
+  const elapsed = effectiveNow - stream.startTime;
+  if (elapsed <= 0) return 0n;
+
+  const streamed = stream.ratePerSecond * BigInt(elapsed);
   const available = streamed - stream.withdrawn;
   return available > 0n ? available : 0n;
 }

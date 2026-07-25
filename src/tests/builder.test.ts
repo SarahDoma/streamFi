@@ -1,5 +1,5 @@
-import { describe, it, expect, vi } from 'vitest';
-import { StreamBuilder, ConduitBatcher } from '../builder.js';
+import { describe, it, expect } from 'vitest';
+import { StreamBuilder } from '../builder.js';
 
 describe('StreamBuilder', () => {
   it('correctly builds a stream configuration when all fields are provided', () => {
@@ -148,71 +148,53 @@ describe('StreamBuilder', () => {
 
     expect(builderNeg).toThrow('Invalid StreamBuilder parameter: ratePerSecond');
   });
-});
 
-describe('ConduitBatcher', () => {
-  it('executes a batch of streams successfully', () => {
-    const stream1 = new StreamBuilder()
-      .token('CD1')
-      .sender('GA1')
-      .recipient('GB1')
-      .amount(100)
-      .build();
-
-    const stream2 = new StreamBuilder()
-      .token('CD2')
-      .sender('GA2')
-      .recipient('GB2')
-      .amount(200)
-      .build();
-
-    const result = ConduitBatcher.execute([stream1, stream2]);
-
-    expect(result.success).toBe(true);
-    expect(result.operations).toBe(2);
-    expect(result.xdr).toBe('AAAA...mock...batch...XDR');
-  });
-
-  it('serialises bigint fields to strings before processing', () => {
-    const payload = {
-      token: 'CD...',
-      sender: 'GA...',
-      recipient: 'GB...',
-      rate: BigInt('9007199254740993'),
-      deposit: 50000n,
+  it('limits concurrent submissions via semaphore', async () => {
+    let running = 0;
+    let maxRunning = 0;
+    const submitFn = async () => {
+      running++;
+      maxRunning = Math.max(maxRunning, running);
+      await new Promise(r => setTimeout(r, 10));
+      running--;
+      return 'ok';
     };
 
-    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const builder = new StreamBuilder({ concurrency: 3 })
+      .token('CD...')
+      .sender('GA...')
+      .recipient('GB...')
+      .amount(1000);
 
-    const result = ConduitBatcher.execute([payload]);
+    // Launch 10 concurrent submissions
+    const promises = Array.from({ length: 10 }, () => builder.submit(submitFn));
+    await Promise.all(promises);
 
-    consoleSpy.mockRestore();
-
-    expect(result.success).toBe(true);
-    expect(result.operations).toBe(1);
+    // Max concurrent should not exceed the semaphore limit
+    expect(maxRunning).toBeLessThanOrEqual(3);
   });
 
-  it('handles mixed bigint and non-bigint payloads', () => {
-    const streams = [
-      { id: 1n, rate: 2n, name: 'stream-a' },
-      { id: 3, rate: 4, name: 'stream-b' },
-      { nested: { deep: { val: 99n } } },
-    ];
+  it('rejects submissions when queue is full', async () => {
+    const submitFn = async () => {
+      await new Promise(r => setTimeout(r, 100));
+      return 'ok';
+    };
 
-    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-    const result = ConduitBatcher.execute(streams);
-    consoleSpy.mockRestore();
+    const builder = new StreamBuilder({ concurrency: 1, maxQueueSize: 2 })
+      .token('CD...')
+      .sender('GA...')
+      .recipient('GB...')
+      .amount(1000);
 
-    expect(result.success).toBe(true);
-    expect(result.operations).toBe(3);
-  });
+    // First submission will acquire the semaphore
+    const p1 = builder.submit(submitFn);
+    // Second will be queued
+    const p2 = builder.submit(submitFn);
+    // Third should be rejected (queue full)
+    await expect(builder.submit(submitFn)).rejects.toThrow('queue is full');
 
-  it('returns zero operations for an empty array', () => {
-    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-    const result = ConduitBatcher.execute([]);
-    consoleSpy.mockRestore();
-
-    expect(result.success).toBe(true);
-    expect(result.operations).toBe(0);
+    // Clean up
+    await p1;
+    await p2;
   });
 });

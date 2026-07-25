@@ -121,17 +121,18 @@ export function subscribeToStream(
   poll();
 
   return {
-    // Clear the pending timer immediately rather than relying solely on the
-    // `stopped` flag — otherwise the scheduled setTimeout keeps its callback
-    // (and everything it closes over: server, handlers, startLedger) alive
-    // in the event loop until it fires on its own, up to `pollInterval` ms
-    // after the caller believed the subscription was torn down.
     unsubscribe: () => {
       stopped = true;
       if (timer !== undefined) {
         clearTimeout(timer);
         timer = undefined;
       }
+      // Release closure references to prevent memory leaks — without this,
+      // the handlers object, server instance, and everything they reference
+      // stay alive in the event loop until the JS engine garbage-collects
+      // the entire closure graph, which may never happen if any external
+      // reference to the Subscription object is kept.
+      handlers = {};
     },
   };
 }
