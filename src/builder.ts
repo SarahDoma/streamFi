@@ -275,6 +275,7 @@ const DEFAULT_MAX_BATCH_SIZE = 50;
 /**
  * Validate that the input is a non-null, non-empty array of objects.
  * Returns an array of error messages, or an empty array if valid.
+ * Mandatory client-side validation prevents invalid payloads from reaching the smart contract.
  */
 function validatePayload(streams: unknown): string[] {
   const errors: string[] = [];
@@ -342,14 +343,12 @@ export class ConduitBatcher {
       };
     }
 
-    const maxBatchSize = options?.maxBatchSize ?? DEFAULT_MAX_BATCH_SIZE;
     const sanitized = streams.map(bigintSafeStringify);
     const chunks = sanitized.length === 0 ? 0 : Math.ceil(sanitized.length / maxBatchSize);
 
     return {
       success: true,
       operations: sanitized.length,
-      chunks,
       xdr: 'AAAA...mock...batch...XDR',
     };
   }
