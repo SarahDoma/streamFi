@@ -13,7 +13,7 @@ export {
 export type { ConduitContract } from './errors.js';
 export * from './types/index.js';
 export * from './adapters/index.js';
-export { GraphSyncAgent } from './graph-sync-agent.js';
+export { FeeEstimator } from './fee-estimator.js';
 
 // Utils are exported via the /utils subpath export, but also available here
 export {
