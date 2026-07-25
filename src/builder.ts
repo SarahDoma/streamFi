@@ -344,7 +344,8 @@ export class ConduitBatcher {
     }
 
     const sanitized = streams.map(bigintSafeStringify);
-    const chunks = sanitized.length === 0 ? 0 : Math.ceil(sanitized.length / maxBatchSize);
+    const resolvedMaxBatchSize = options?.maxBatchSize ?? DEFAULT_MAX_BATCH_SIZE;
+    const chunks = sanitized.length === 0 ? 0 : Math.ceil(sanitized.length / resolvedMaxBatchSize);
 
     return {
       success: true,

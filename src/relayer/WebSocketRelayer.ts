@@ -176,18 +176,6 @@ export class WebSocketRelayer {
     }
   }
 
-  private async safeInvokeHandler(handler: MessageHandler, msg: WebSocketMessage): Promise<void> {
-    try {
-      const result = handler(msg);
-      if (result && typeof (result as Promise<void>).catch === 'function') {
-        await (result as Promise<void>).catch((err: Error) => {
-          console.warn('[WebSocketRelayer] async handler error:', err);
-        });
-      }
-    } catch (err) {
-      console.warn('[WebSocketRelayer] handler error:', err);
-    }
-  }
 
   /** Idempotency guard: only reconnect if not already connected or reconnecting */
   private shouldAttemptReconnect(): boolean {
