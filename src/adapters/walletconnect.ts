@@ -206,6 +206,7 @@ export class WalletConnectAdapter implements WalletAdapter {
   /**
    * Extract account public key from CAIP-10 address format in WalletConnect session.
    * e.g., 'stellar:pubnet:GABC123...' -> 'GABC123...'
+   * Uses safe fallback handling with nullish coalescing to prevent crashes from malformed formats.
    */
   private getPublicKeyFromSession(): string | null {
     if (!this.session) return null;

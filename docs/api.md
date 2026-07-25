@@ -293,15 +293,28 @@ const stream = new StreamBuilder()
 
 ### `ConduitBatcher`
 
-A utility class to bundle multiple stream operations.
+A utility class to bundle multiple stream operations with mandatory client-side validation.
 
 #### Methods
 
-* `static execute(streams: Record<string, unknown>[]): BatchResult` - Bundles the list of stream configurations into a single transaction.
+* `static execute(streams: Record<string, unknown>[]): BatchResult` - Validates and bundles the list of stream configurations into a single transaction. Returns `{ success: false, errors: [...] }` if validation fails instead of throwing.
+
+**Validation Rules:**
+- Payload must be a non-null, non-empty array
+- Each array item must be a non-null object
+- Invalid payloads are rejected at the client before submission
 
 ```typescript
 import { ConduitBatcher } from '@conduit-protocol/sdk';
 
 const result = ConduitBatcher.execute([stream1, stream2]);
+if (!result.success) {
+  console.error('Validation errors:', result.errors);
+  return;
+}
 ```
+
+* `static executeAsync(operations: BatchOperation[], signal?: AbortSignal): Promise<BatchResult>` - Asynchronously execute a batch with abort signal support.
+
+**Throws:** `ConduitError` if batcher is destroyed.
 

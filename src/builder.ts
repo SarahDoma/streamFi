@@ -268,6 +268,7 @@ export interface BatchResult {
 /**
  * Validate that the input is a non-null, non-empty array of objects.
  * Returns an array of error messages, or an empty array if valid.
+ * Mandatory client-side validation prevents invalid payloads from reaching the smart contract.
  */
 function validatePayload(streams: unknown): string[] {
   const errors: string[] = [];
