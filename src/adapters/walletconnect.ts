@@ -213,7 +213,7 @@ export class WalletConnectAdapter implements WalletAdapter {
     // Direct account string on session
     if (typeof this.session.account === 'string') {
       return this.session.account.includes(':')
-        ? this.session.account.split(':').pop()!
+        ? this.session.account.split(':').at(-1) ?? this.session.account
         : this.session.account;
     }
 
@@ -222,14 +222,14 @@ export class WalletConnectAdapter implements WalletAdapter {
     if (namespaces && namespaces['stellar'] && Array.isArray(namespaces['stellar'].accounts)) {
       const fullAccount = namespaces['stellar'].accounts[0];
       if (fullAccount) {
-        return fullAccount.includes(':') ? fullAccount.split(':').pop()! : fullAccount;
+        return fullAccount.includes(':') ? fullAccount.split(':').at(-1) ?? fullAccount : fullAccount;
       }
     }
 
     // Fallback: direct accounts array
     if (Array.isArray(this.session.accounts) && this.session.accounts[0]) {
       const fullAccount = this.session.accounts[0];
-      return fullAccount.includes(':') ? fullAccount.split(':').pop()! : fullAccount;
+      return fullAccount.includes(':') ? fullAccount.split(':').at(-1) ?? fullAccount : fullAccount;
     }
 
     return null;

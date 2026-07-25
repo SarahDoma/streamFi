@@ -329,22 +329,12 @@ export class ConduitBatcher {
         xdr: '',
         errors: validationErrors,
       };
-  static execute(streams: Record<string, unknown>[]) {
-    if (!Array.isArray(streams) || streams.length === 0) {
-      throw new Error('Streams payload array cannot be null, undefined, or empty');
-    }
-    for (const stream of streams) {
-      if (stream === null || stream === undefined || typeof stream !== 'object') {
-        throw new Error('Stream item inside batch cannot be null or undefined');
-      }
     }
 
-    const maxBatchSize = options?.maxBatchSize ?? DEFAULT_MAX_BATCH_SIZE;
     const sanitized = streams.map(bigintSafeStringify);
     return {
       success: true,
       operations: sanitized.length,
-      chunks: chunks.length,
       xdr: 'AAAA...mock...batch...XDR',
     };
   }
