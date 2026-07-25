@@ -271,7 +271,29 @@ export class StreamsModule {
    * the frontend can implement infinite scrolling.
    */
   async list(params: ListStreamsParams): Promise<PaginatedStreams> {
-    const { sender, recipient, offset = 0, limit = 20 } = params;
+    const { sender, recipient, limit = 20 } = params;
+    let offset = params.offset ?? 0;
+
+    // A cursor from a previous page's nextCursor takes precedence over a
+    // manually-supplied offset. Cursors are opaque base64-encoded offset
+    // strings; anything that doesn't decode to a non-negative integer is
+    // rejected rather than silently falling back to page 1 (see #124).
+    if (params.cursor !== undefined) {
+      let decoded: string;
+      try {
+        decoded = Buffer.from(params.cursor, 'base64').toString('utf8');
+      } catch {
+        throw new Error(`Invalid cursor: "${params.cursor}"`);
+      }
+      if (!/^\d+$/.test(decoded)) {
+        throw new Error(`Invalid cursor: "${params.cursor}"`);
+      }
+      offset = Number(decoded);
+    }
+
+    const encodeCursor = (nextOffset: number): string =>
+      Buffer.from(String(nextOffset), 'utf8').toString('base64');
+
     let ids: bigint[] = [];
 
     // Fetch stream IDs and total count in parallel — totalCount comes from
@@ -283,12 +305,14 @@ export class StreamsModule {
       ]);
       ids = senderIds;
       const streams = await Promise.all(ids.map(id => this.get(id)));
+      const hasNextPage = BigInt(offset) + BigInt(limit) < totalCount;
       return {
         streams,
-        hasNextPage: BigInt(offset) + BigInt(limit) < totalCount,
+        hasNextPage,
         totalCount,
         offset,
         limit,
+        ...(hasNextPage ? { nextCursor: encodeCursor(offset + limit) } : {}),
       };
     } else if (recipient) {
       const [recipientIds, totalCount] = await Promise.all([
@@ -297,16 +321,18 @@ export class StreamsModule {
       ]);
       ids = recipientIds;
       const streams = await Promise.all(ids.map(id => this.get(id)));
+      const hasNextPage = BigInt(offset) + BigInt(limit) < totalCount;
       return {
         streams,
-        hasNextPage: BigInt(offset) + BigInt(limit) < totalCount,
+        hasNextPage,
         totalCount,
         offset,
         limit,
+        ...(hasNextPage ? { nextCursor: encodeCursor(offset + limit) } : {}),
       };
     }
 
-    // Neither sender nor recipient — return empty page
+   // Neither sender nor recipient — return empty page
     return { streams: [], hasNextPage: false, totalCount: 0n, offset, limit };
   }
 

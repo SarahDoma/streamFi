@@ -70,6 +70,8 @@ export interface ListStreamsParams {
   recipient?: string;
   offset?:    number;
   limit?:     number;
+  /** Opaque pagination cursor from a previous page's `nextCursor`. Takes precedence over `offset` if both are given. */
+  cursor?:    string;
 }
 
 export interface PaginatedStreams {
@@ -83,6 +85,8 @@ export interface PaginatedStreams {
   offset:      number;
   /** The limit used for this page */
   limit:       number;
+  /** Opaque cursor to pass as `cursor` to fetch the next page. Present only when `hasNextPage` is true. */
+  nextCursor?: string;
 }
 
 export interface GovernorConfig {
