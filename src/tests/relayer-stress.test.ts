@@ -1,0 +1,222 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { WebSocketRelayer } from '../relayer/WebSocketRelayer.js';
+
+function createMockWs(): { mock: any; onmessage: Function | null } {
+  let onmessage: Function | null = null;
+  let onopen: Function | null = null;
+  const mock = {
+    readyState: 1,
+    send: vi.fn(),
+    close: vi.fn(),
+    set onmessage(fn: any) { onmessage = fn; },
+    get onmessage() { return onmessage; },
+    set onopen(fn: any) { onopen = fn; if (fn) setTimeout(fn, 0); },
+    get onopen() { return onopen; },
+  };
+  return { mock, onmessage: () => onmessage };
+}
+
+describe('WebSocketRelayer — High-Concurrency Stress Tests', () => {
+  let relayer: WebSocketRelayer;
+  let mockWs: any;
+  let getOnmessage: () => Function | null;
+
+  beforeEach(() => {
+    const created = createMockWs();
+    mockWs = created.mock;
+    getOnmessage = created.onmessage;
+    (global as any).WebSocket = vi.fn(() => mockWs) as any;
+    relayer = new WebSocketRelayer('ws://localhost:8080', {
+      maxReconnectAttempts: 2,
+      reconnectDelayMs: 10,
+    });
+  });
+
+  afterEach(() => {
+    relayer.destroy();
+    delete (global as any).WebSocket;
+  });
+
+  it('handles 100+ rapid concurrent sends without race conditions', async () => {
+    await relayer.connect();
+    const promises: Promise<void>[] = [];
+    for (let i = 0; i < 100; i++) {
+      promises.push(relayer.send({ type: 'test', payload: { index: i }, id: `msg-${i}` }));
+    }
+    await Promise.all(promises);
+
+    expect(mockWs.send.mock.calls.length).toBe(100);
+  });
+
+  it('handles concurrent connect calls without duplicate connections', async () => {
+    const promises: Promise<void>[] = [];
+    for (let i = 0; i < 20; i++) {
+      promises.push(relayer.connect().catch(() => {}));
+    }
+    await Promise.all(promises);
+
+    const wsConstructors = (global as any).WebSocket.mock.calls.length;
+    expect(wsConstructors).toBeLessThanOrEqual(2);
+  });
+
+  it('queues messages sent before connection and flushes on connect', async () => {
+    const relayer2 = new WebSocketRelayer('ws://localhost:8081', {
+      maxReconnectAttempts: 1,
+      reconnectDelayMs: 5,
+    });
+
+    for (let i = 0; i < 50; i++) {
+      relayer2.send({ type: 'queue-test', payload: { index: i } }).catch(() => {});
+    }
+
+    expect(relayer2.state.pendingCount).toBe(50);
+    relayer2.destroy();
+  });
+
+  it('registers and fires multiple handlers for the same message type', async () => {
+    const handler1 = vi.fn();
+    const handler2 = vi.fn();
+    const handler3 = vi.fn();
+
+    relayer.on('price_update', handler1);
+    relayer.on('price_update', handler2);
+    relayer.on('price_update', handler3);
+
+    await relayer.connect();
+    const cb = getOnmessage();
+    const msg = JSON.stringify({ type: 'price_update', payload: { price: 100 } });
+    if (cb) cb({ data: msg });
+
+    expect(handler1).toHaveBeenCalledTimes(1);
+    expect(handler2).toHaveBeenCalledTimes(1);
+    expect(handler3).toHaveBeenCalledTimes(1);
+  });
+
+  it('unsubscribes handlers correctly during high-frequency events', async () => {
+    const handler = vi.fn();
+    const unsub = relayer.on('high_freq', handler);
+
+    await relayer.connect();
+    const cb = getOnmessage();
+
+    for (let i = 0; i < 50; i++) {
+      const msg = JSON.stringify({ type: 'high_freq', payload: { tick: i } });
+      if (cb) cb({ data: msg });
+    }
+
+    expect(handler).toHaveBeenCalledTimes(50);
+
+    unsub();
+
+    for (let i = 0; i < 50; i++) {
+      const msg = JSON.stringify({ type: 'high_freq', payload: { tick: i } });
+      if (cb) cb({ data: msg });
+    }
+
+    expect(handler).toHaveBeenCalledTimes(50);
+  });
+
+  it('handlers do not block each other when one throws', async () => {
+    const badHandler = vi.fn(() => { throw new Error('handler error'); });
+    const goodHandler = vi.fn();
+
+    relayer.on('data', badHandler);
+    relayer.on('data', goodHandler);
+
+    await relayer.connect();
+    const cb = getOnmessage();
+    const msg = JSON.stringify({ type: 'data', payload: { value: 42 } });
+    if (cb) cb({ data: msg });
+
+    expect(goodHandler).toHaveBeenCalledTimes(1);
+  });
+
+  it('survives rapid connect-disconnect-reconnect cycles', async () => {
+    for (let cycle = 0; cycle < 10; cycle++) {
+      const r = new WebSocketRelayer('ws://localhost:8090', {
+        maxReconnectAttempts: 1,
+        reconnectDelayMs: 1,
+      });
+      r.connect().catch(() => {});
+      r.destroy();
+    }
+  });
+
+  it('delivers messages to the correct handler based on type', async () => {
+    const priceHandler = vi.fn();
+    const tradeHandler = vi.fn();
+    const newsHandler = vi.fn();
+
+    relayer.on('price', priceHandler);
+    relayer.on('trade', tradeHandler);
+    relayer.on('news', newsHandler);
+
+    await relayer.connect();
+    const cb = getOnmessage();
+
+    const events = [
+      { type: 'price', payload: { value: 100 } },
+      { type: 'trade', payload: { amount: 50 } },
+      { type: 'price', payload: { value: 101 } },
+      { type: 'news', payload: { headline: 'test' } },
+    ];
+
+    for (const evt of events) {
+      const msg = JSON.stringify(evt);
+      if (cb) cb({ data: msg });
+    }
+
+    expect(priceHandler).toHaveBeenCalledTimes(2);
+    expect(tradeHandler).toHaveBeenCalledTimes(1);
+    expect(newsHandler).toHaveBeenCalledTimes(1);
+  });
+
+  it('ignores malformed JSON messages without throwing', async () => {
+    const handler = vi.fn();
+    relayer.on('data', handler);
+
+    await relayer.connect();
+    const cb = getOnmessage();
+
+    const malformedMessages: any[] = ['not json', '{broken json', '', null, undefined];
+
+    for (const msg of malformedMessages) {
+      if (cb) cb({ data: msg });
+    }
+
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it('handles 1000 rapid events without dropping handlers', async () => {
+    const handler = vi.fn();
+    relayer.on('rapid', handler);
+
+    await relayer.connect();
+    const cb = getOnmessage();
+
+    const messages = Array.from({ length: 1000 }, (_, i) =>
+      JSON.stringify({ type: 'rapid', payload: { index: i }, id: `evt-${i}` }),
+    );
+
+    for (const msg of messages) {
+      if (cb) cb({ data: msg });
+    }
+
+    expect(handler).toHaveBeenCalledTimes(1000);
+  });
+
+  it('state reflects destroyed status correctly', () => {
+    expect(relayer.state.destroyed).toBe(false);
+    relayer.destroy();
+    expect(relayer.state.destroyed).toBe(true);
+  });
+
+  it('state reports pending count when connection is down', () => {
+    mockWs.readyState = 3;
+    relayer.send({ type: 'test', payload: {} }).catch(() => {});
+    relayer.send({ type: 'test', payload: {} }).catch(() => {});
+    relayer.send({ type: 'test', payload: {} }).catch(() => {});
+
+    expect(relayer.state.pendingCount).toBe(3);
+  });
+});
