@@ -86,7 +86,7 @@ export class WebSocketRelayer {
 
   private wsCtor(): typeof WebSocket | null {
     if (typeof globalThis !== 'undefined' && 'WebSocket' in globalThis) {
-      return (globalThis as any).WebSocket as typeof WebSocket;
+      return (globalThis as unknown as { WebSocket: typeof WebSocket }).WebSocket;
     }
     if (typeof WebSocket !== 'undefined') {
       return WebSocket;
@@ -102,11 +102,11 @@ export class WebSocketRelayer {
 
     return new Promise((resolve, reject) => {
       try {
-        let ws: any;
+        let ws: WebSocket;
         try {
-          ws = new (WebSocketCtor as any)(this.url);
+          ws = new WebSocketCtor(this.url);
         } catch {
-          ws = (WebSocketCtor as any)(this.url);
+          ws = (WebSocketCtor as unknown as (url: string) => WebSocket)(this.url);
         }
         if (!ws) {
           resolve();
@@ -207,6 +207,7 @@ export class WebSocketRelayer {
 
       await this.establishConnection();
     } catch {
+      // Reconnect attempt failed; the next scheduled attempt (if any) will retry.
     } finally {
       this.releaseLock();
     }
@@ -271,6 +272,7 @@ export class WebSocketRelayer {
       try {
         this.ws.close();
       } catch {
+        // Socket already closed/closing; nothing to clean up.
       }
       this.ws = null;
     }
@@ -289,6 +291,7 @@ export class WebSocketRelayer {
         this.ws.onmessage = null;
         this.ws.close();
       } catch {
+        // Socket already closed/closing; nothing to clean up.
       }
       this.ws = null;
     }

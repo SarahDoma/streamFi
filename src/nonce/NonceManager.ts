@@ -4,8 +4,8 @@ export interface NonceLock {
 }
 
 export interface NonceManagerOptions {
-  startNonce?: bigint | number;
-  maxNonce?: bigint | number;
+  startNonce?: bigint | number | string;
+  maxNonce?: bigint | number | string;
 }
 
 const MAX_SAFE_U64 = 18446744073709551615n;

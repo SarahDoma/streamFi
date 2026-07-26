@@ -476,7 +476,7 @@ export class StreamsModule {
     return xdr.ScVal.fromXDR(result.result.retval.toXDR());
   }
 
-  /** Simulate Ã¢â€ â€™ assemble Ã¢â€ â€™ sign Ã¢â€ â€™ submit Ã¢â€ â€™ poll. Returns txHash. */
+  /** Simulate -> assemble -> sign -> submit -> poll. Returns txHash. */
   private async _invoke(contractId: string, method: string, args: xdr.ScVal[]): Promise<string> {
     const senderAddr = await this._getSenderAddress();
     const tx         = await buildContractCallTx(this.rpcUrl, this.passphrase, senderAddr, contractId, method, args);

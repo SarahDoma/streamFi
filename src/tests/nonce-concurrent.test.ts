@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { NonceManager, type NonceLock } from '../nonce/NonceManager.js';
 
 describe('NonceManager — Concurrent Nonce Integration Tests', () => {

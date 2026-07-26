@@ -20,7 +20,7 @@ describe('StreamBuilder Network Interruption & Payload Queueing Regression Tests
       .amount(1000);
 
     let attempts = 0;
-    const flakeyNetworkSubmit = async (payload: any) => {
+    const flakeyNetworkSubmit = async (_payload: any) => {
       attempts++;
       if (attempts < 2) {
         throw new Error('Network interruption: Connection reset by peer');

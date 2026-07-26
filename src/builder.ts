@@ -351,6 +351,7 @@ export class ConduitBatcher {
       success: true,
       operations: sanitized.length,
       xdr: 'AAAA...mock...batch...XDR',
+      chunks,
     };
   }
 
