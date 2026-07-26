@@ -98,7 +98,7 @@ describe('WalletConnectAdapter edge cases', () => {
     it('should handle approval timeout', async () => {
       const mockClient = {
         connect: vi.fn().mockResolvedValue({
-          approval: () => new Promise(() {}), // Never resolves
+          approval: () => new Promise(() => {}), // Never resolves
         }),
       };
       const adapter = new WalletConnectAdapter({
