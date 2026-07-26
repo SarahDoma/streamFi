@@ -21,7 +21,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 // ---------------------------------------------------------------------------
 
 function createTimeoutFetch(timeoutMs: number) {
-  return async (uri: RequestInfo | URL, options?: RequestInit): Promise<Response> => {
+  return async (uri: string | URL, options?: RequestInit): Promise<Response> => {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
     return fetch(uri, { ...options, signal: controller.signal }).finally(() =>
@@ -47,7 +47,7 @@ describe('Profile Page — RPC provider timeout (fix for #158)', () => {
   it('aborts the fetch when the server does not respond within the timeout', async () => {
     // Simulate a server that never responds (hangs indefinitely)
     const hangingFetch = vi.fn(
-      (_uri: RequestInfo | URL, options?: RequestInit): Promise<Response> =>
+      (_uri: string | URL, options?: RequestInit): Promise<Response> =>
         new Promise((_resolve, reject) => {
           // Only reject if the signal fires (abort)
           if (options?.signal) {
@@ -69,14 +69,16 @@ describe('Profile Page — RPC provider timeout (fix for #158)', () => {
     // Fast-forward past the 15-second timeout
     vi.advanceTimersByTime(15_001);
 
-    await expect(resultPromise).rejects.toThrow('AbortError');
+    // DOMException's .message is "The operation was aborted." — the
+    // 'AbortError' string only appears in .name, not the message text.
+    await expect(resultPromise).rejects.toMatchObject({ name: 'AbortError' });
     // The fetch must have been called exactly once
     expect(hangingFetch).toHaveBeenCalledTimes(1);
   });
 
   it('does NOT abort when the server responds before the timeout', async () => {
     const fastFetch = vi.fn(
-      (_uri: RequestInfo | URL, _options?: RequestInit): Promise<Response> =>
+      (_uri: string | URL, _options?: RequestInit): Promise<Response> =>
         Promise.resolve(
           new Response(JSON.stringify({ data: { streams: [] } }), {
             status: 200,
@@ -135,7 +137,7 @@ describe('Profile Page — RPC provider timeout (fix for #158)', () => {
   it('passes the merged AbortSignal through to the underlying fetch options', async () => {
     let capturedOptions: RequestInit | undefined;
     const captureFetch = vi.fn(
-      (_uri: RequestInfo | URL, options?: RequestInit): Promise<Response> => {
+      (_uri: string | URL, options?: RequestInit): Promise<Response> => {
         capturedOptions = options;
         return Promise.resolve(new Response('{}', { status: 200 }));
       },

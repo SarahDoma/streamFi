@@ -69,7 +69,7 @@ describe('ConduitClient — constructor network validation', () => {
   it('throws UnsupportedChainError for a completely unknown network', async () => {
     const { ConduitClient } = await import('../client.js');
     expect(() => new ConduitClient({ network: 'ropsten' as never, factoryAddress: FACTORY_ADDR }))
-      .toThrow(UnsupportedChainError);
+      .toThrow(/Unsupported network/);
   });
 
   it('includes the bad network name in the error message', async () => {
@@ -77,7 +77,12 @@ describe('ConduitClient — constructor network validation', () => {
     try {
       new ConduitClient({ network: 'ropsten' as never, factoryAddress: FACTORY_ADDR });
     } catch (err) {
-      expect(err).toBeInstanceOf(UnsupportedChainError);
+      // `vi.resetModules()` in `beforeEach` gives `client.js` (and its
+      // internal `errors.js` import) a fresh module instance per test, so
+      // `err` is a structurally-identical but not `===`/instanceof-equal
+      // UnsupportedChainError to the one imported statically above — assert
+      // on `.name` instead of identity.
+      expect((err as Error).name).toBe('UnsupportedChainError');
       expect((err as UnsupportedChainError).providedNetwork).toBe('ropsten');
       expect((err as UnsupportedChainError).supportedNetworks).toContain('testnet');
     }
@@ -104,14 +109,14 @@ describe('ConduitClient.setWallet() — network cross-validation (#157)', () => 
     // assertWalletNetworkMatch reads via the `chainId` property check.
     const mainnetWallet = new WalletConnectAdapter({ chainId: 'stellar:pubnet' });
 
-    expect(() => client.setWallet(mainnetWallet)).toThrow(UnsupportedChainError);
+    expect(() => client.setWallet(mainnetWallet)).toThrow(/Unsupported network/);
   });
 
   it('rejects a testnet wallet when the client is configured for mainnet', async () => {
     const { ConduitClient } = await import('../client.js');
     const client = new ConduitClient({ network: 'mainnet', factoryAddress: FACTORY_ADDR });
     const testnetWallet = new WalletConnectAdapter({ chainId: 'stellar:testnet' });
-    expect(() => client.setWallet(testnetWallet)).toThrow(UnsupportedChainError);
+    expect(() => client.setWallet(testnetWallet)).toThrow(/Unsupported network/);
   });
 
   it('accepts a matching mainnet wallet on a mainnet client', async () => {
@@ -145,7 +150,7 @@ describe('ConduitClient.setWallet() — network cross-validation (#157)', () => 
       client.setWallet(mainnetWallet);
       expect.fail('should have thrown');
     } catch (err) {
-      expect(err).toBeInstanceOf(UnsupportedChainError);
+      expect((err as Error).name).toBe('UnsupportedChainError');
       // The error message must mention the mismatch so it's actionable
       expect((err as UnsupportedChainError).message).toMatch(/mainnet/i);
       expect((err as UnsupportedChainError).message).toMatch(/testnet/i);
@@ -212,7 +217,7 @@ describe('FactoryModule — direct construction network validation (#157)', () =
   it('throws UnsupportedChainError when constructed directly with an invalid network', async () => {
     const { FactoryModule } = await import('../factory.js');
     expect(() => new FactoryModule({ network: 'ropsten' as never, factoryAddress: FACTORY_ADDR }))
-      .toThrow(UnsupportedChainError);
+      .toThrow(/Unsupported network/);
   });
 
   it('does not throw for valid networks when constructed directly', async () => {
@@ -231,7 +236,7 @@ describe('GovernorModule — direct construction network validation (#157)', () 
   it('throws UnsupportedChainError when constructed directly with an invalid network', async () => {
     const { GovernorModule } = await import('../governor.js');
     expect(() => new GovernorModule({ network: 'ropsten' as never }))
-      .toThrow(UnsupportedChainError);
+      .toThrow(/Unsupported network/);
   });
 
   it('does not throw for valid networks when constructed directly', async () => {
@@ -254,7 +259,7 @@ describe('ConduitClient constructor — wallet chain pre-validation (#157)', () 
       network: 'testnet',
       factoryAddress: FACTORY_ADDR,
       wallet: mainnetWallet,
-    })).toThrow(UnsupportedChainError);
+    })).toThrow(/Unsupported network/);
   });
 
   it('accepts a matching wallet at construction time', async () => {
