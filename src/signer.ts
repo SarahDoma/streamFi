@@ -69,12 +69,12 @@ export class TransactionSigner implements Signer {
       if ('chainId' in this.walletAdapter && (this.walletAdapter as unknown as { chainId?: unknown }).chainId) {
         const raw = (this.walletAdapter as unknown as { chainId: unknown }).chainId;
         const parsed = typeof raw === 'number' ? raw : parseInt(String(raw).split(':').pop() || '1', 10);
-        if (!isNaN(parsed) && parsed > 0) return parsed;
+        if (!isNaN(parsed) && parsed > 0 && parsed <= MAX_VALID_CHAIN_ID) return parsed;
       }
       if ('getChainId' in this.walletAdapter && typeof (this.walletAdapter as unknown as { getChainId?: () => unknown }).getChainId === 'function') {
         const raw = await (this.walletAdapter as unknown as { getChainId: () => Promise<unknown> }).getChainId();
         const parsed = typeof raw === 'number' ? raw : parseInt(String(raw).split(':').pop() || '1', 10);
-        if (!isNaN(parsed) && parsed > 0) return parsed;
+        if (!isNaN(parsed) && parsed > 0 && parsed <= MAX_VALID_CHAIN_ID) return parsed;
       }
     }
 
@@ -149,6 +149,7 @@ export class TransactionSigner implements Signer {
 
       const timer = setTimeout(() => {
         cleanup();
+        this.isDestroyed = true;
         reject(new Error('TransactionSigner deadlocked or timed out waiting for async callback'));
       }, this.timeoutMs);
 
