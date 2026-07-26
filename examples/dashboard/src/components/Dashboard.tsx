@@ -10,11 +10,15 @@ import {
 interface DashboardProps {
   className?: string;
   walletAddress?: string;
+  /** Currently active network. Changes to this prop trigger a full Apollo
+   *  cache reset via useNetworkSwitch (fixes #156). */
+  network?: string;
 }
 
 export const Dashboard: React.FC<DashboardProps> = ({
   className,
   walletAddress = "",
+  network: _network,
 }) => {
   const {
     data: statsData,

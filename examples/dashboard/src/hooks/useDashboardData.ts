@@ -36,22 +36,34 @@ interface RecentStreamsData {
  * Fetches dashboard stats with automatic cache updates after mutations.
  * Uses `refetchQueries` on every mutation to invalidate stale cache entries
  * and pull fresh on-chain state from the server.
+ *
+ * `errorPolicy: 'all'` ensures that network errors (including RPC / indexer
+ * timeouts) are surfaced in the returned `error` field rather than swallowed,
+ * so `loading` is always cleared — fixes the infinite-spinner bug (#158).
  */
 export function useDashboardStats(walletAddress: string) {
   return useQuery<DashboardStatsData>(GET_DASHBOARD_STATS, {
     variables: { walletAddress },
     // Poll periodically to catch external state changes
     pollInterval: 30_000,
+    // Surface errors (including timeouts) instead of leaving loading=true forever
+    errorPolicy: 'all',
   });
 }
 
 /**
  * Fetches recent streams with automatic refetch after mutations.
+ *
+ * `errorPolicy: 'all'` ensures that network errors (including RPC / indexer
+ * timeouts) are surfaced in the returned `error` field rather than swallowed,
+ * so `loading` is always cleared — fixes the infinite-spinner bug (#158).
  */
 export function useRecentStreams(walletAddress: string, limit = 20) {
   return useQuery<RecentStreamsData>(GET_RECENT_STREAMS, {
     variables: { walletAddress, limit },
     pollInterval: 30_000,
+    // Surface errors (including timeouts) instead of leaving loading=true forever
+    errorPolicy: 'all',
   });
 }
 

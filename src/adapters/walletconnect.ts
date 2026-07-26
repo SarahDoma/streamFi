@@ -26,7 +26,11 @@ export interface WalletConnectSession {
 export interface WalletConnectAdapterOptions {
   /** WalletConnect v2 Project ID */
   projectId?: string;
-  /** CAIP-2 chain identifier (e.g., 'stellar:pubnet', 'stellar:testnet'). Defaults to 'stellar:pubnet' */
+  /**
+   * CAIP-2 chain identifier (e.g., 'stellar:pubnet', 'stellar:testnet').
+   * Must be one of: 'stellar:pubnet', 'stellar:testnet', 'stellar:local'.
+   * Defaults to 'stellar:pubnet'.
+   */
   chainId?: string;
   /** DApp metadata for WalletConnect modal/handshake */
   metadata?: WalletConnectAppMetadata;
@@ -37,6 +41,18 @@ export interface WalletConnectAdapterOptions {
   /** Milliseconds to wait for the connect handshake before rejecting. Defaults to 30000. */
   connectTimeoutMs?: number;
 }
+
+/**
+ * Exhaustive map of CAIP-2 identifiers this adapter accepts to their
+ * human-readable Stellar network names. Anything not in this map is
+ * rejected at construction time so an invalid chain ID never silently
+ * reaches the smart contract (fixes #157).
+ */
+const SUPPORTED_CAIP2_CHAINS: Readonly<Record<string, string>> = {
+  'stellar:pubnet':  'mainnet',
+  'stellar:testnet': 'testnet',
+  'stellar:local':   'local',
+};
 
 /**
  * Native WalletConnect v2 adapter for mobile and browser-based wallet integration.
@@ -52,7 +68,20 @@ export class WalletConnectAdapter implements WalletAdapter {
 
   constructor(options: WalletConnectAdapterOptions = {}) {
     this.projectId = options.projectId;
-    this.chainId   = options.chainId ?? 'stellar:pubnet';
+    const chainId  = options.chainId ?? 'stellar:pubnet';
+
+    // Validate the CAIP-2 chain identifier at construction time so callers
+    // get an immediate, descriptive error instead of a silent cross-chain
+    // payload submission later (fixes #157).
+    if (!(chainId in SUPPORTED_CAIP2_CHAINS)) {
+      const supported = Object.keys(SUPPORTED_CAIP2_CHAINS).join(', ');
+      throw new Error(
+        `WalletConnectAdapter: unsupported chainId '${chainId}'. ` +
+        `Supported chains: ${supported}.`,
+      );
+    }
+
+    this.chainId   = chainId;
     this.metadata  = options.metadata;
     this.client    = (options.client as WalletConnectSignClient) ?? null;
     this.session   = (options.session as WalletConnectSession) ?? null;

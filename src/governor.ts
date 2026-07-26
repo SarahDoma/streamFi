@@ -13,6 +13,7 @@ import {
   NETWORK_PASSPHRASE,
   DEFAULT_RPC,
 } from './soroban.js';
+import { SUPPORTED_NETWORKS, UnsupportedChainError } from './errors.js';
 
 export class GovernorModule {
   private readonly rpcUrl:      string;
@@ -28,6 +29,11 @@ export class GovernorModule {
   // module unconditionally, so the missing-address check has to be deferred
   // to first actual use (getConfig()) rather than thrown in the constructor.
   constructor(cfg: ConduitConfig) {
+    // Guard against direct construction with an unsupported network, which
+    // would bypass the ConduitClient validation gate (fixes #157).
+    if (!(SUPPORTED_NETWORKS as readonly string[]).includes(cfg.network)) {
+      throw new UnsupportedChainError(cfg.network);
+    }
     this.rpcUrl     = cfg.rpcUrl ?? DEFAULT_RPC[cfg.network];
     this.passphrase = NETWORK_PASSPHRASE[cfg.network];
     this.governorId = cfg.governorAddress;
