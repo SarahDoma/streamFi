@@ -1,6 +1,13 @@
-import { useQuery, useMutation } from '@apollo/client';
-import { GET_DASHBOARD_STATS, GET_RECENT_STREAMS } from '../lib/graphql-operations';
-import { WITHDRAW_STREAM, PAUSE_STREAM, RESUME_STREAM, CANCEL_STREAM } from '../lib/graphql-operations';
+import { useQuery, useMutation } from "@apollo/client";
+import {
+  GET_DASHBOARD_STATS,
+  GET_RECENT_STREAMS,
+  CREATE_STREAM,
+  WITHDRAW_STREAM,
+  PAUSE_STREAM,
+  RESUME_STREAM,
+  CANCEL_STREAM,
+} from "../lib/graphql-operations";
 
 interface DashboardStats {
   activeStreams: number;
@@ -95,4 +102,20 @@ export function useCancelStream(walletAddress: string) {
     awaitRefetchQueries: true,
   });
   return { cancel: mutate, ...result };
+}
+
+/**
+ * Creates a new stream and immediately invalidates both the streams list
+ * and dashboard stats so the Transaction History reflects the new entry
+ * without requiring a manual refresh.
+ */
+export function useCreateStream(walletAddress: string) {
+  const [mutate, result] = useMutation(CREATE_STREAM, {
+    refetchQueries: [
+      { query: GET_DASHBOARD_STATS, variables: { walletAddress } },
+      { query: GET_RECENT_STREAMS, variables: { walletAddress, limit: 20 } },
+    ],
+    awaitRefetchQueries: true,
+  });
+  return { createStream: mutate, ...result };
 }

@@ -1,7 +1,9 @@
-import { ApolloClient, InMemoryCache, HttpLink } from '@apollo/client';
+import { ApolloClient, InMemoryCache, HttpLink } from "@apollo/client";
 
 const httpLink = new HttpLink({
-  uri: import.meta.env.VITE_GRAPHQL_ENDPOINT || 'https://indexer.streamfi.io/graphql',
+  uri:
+    import.meta.env.VITE_GRAPHQL_ENDPOINT ||
+    "https://indexer.streamfi.io/graphql",
 });
 
 export const apolloClient = new ApolloClient({
@@ -11,17 +13,20 @@ export const apolloClient = new ApolloClient({
       Query: {
         fields: {
           streams: {
-            // Merge paginated stream results into a single cache entry
-            keyArgs: ['sender', 'recipient'],
-            merge(existing = { streams: [] }, incoming) {
-              return {
-                ...incoming,
-                streams: [...existing.streams, ...incoming.streams],
-              };
+            // keyArgs controls what makes a distinct cache entry.
+            // Including 'walletAddress', 'limit', and 'orderBy' ensures that
+            // different query shapes are cached separately and that a refetch
+            // with the same args fully replaces the cached list rather than
+            // appending to it (the previous merge accumulated stale entries).
+            keyArgs: ["walletAddress", "limit", "orderBy"],
+            // Replace the entire list on every incoming response so that
+            // mutations followed by refetchQueries always surface fresh data.
+            merge(_existing, incoming) {
+              return incoming;
             },
           },
           dashboardStats: {
-            // Always replace with fresh server data
+            // Always replace with fresh server data.
             merge(_existing, incoming) {
               return incoming;
             },
@@ -32,9 +37,10 @@ export const apolloClient = new ApolloClient({
   }),
   defaultOptions: {
     watchQuery: {
-      // Ensure we always get fresh data from the server after a mutation
-      fetchPolicy: 'cache-and-network',
-      nextFetchPolicy: 'cache-first',
+      // cache-and-network renders cached data immediately while the network
+      // request completes, then updates the UI with the fresh response.
+      fetchPolicy: "cache-and-network",
+      nextFetchPolicy: "cache-first",
     },
   },
 });
