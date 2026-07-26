@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { WalletConnectAdapter } from '../adapters/walletconnect.js';
 
 describe('WalletConnectAdapter edge cases', () => {

@@ -39,7 +39,7 @@ describe('TransactionSigner Deadlock & Callback Cleanup Regression Tests', () =>
     };
 
     const signer = new TransactionSigner({ walletAdapter: slowWallet as any, timeoutMs: 1000 });
-    const signPromise = signer.sign({} as any);
+    const _signPromise = signer.sign({} as any);
 
     // Destroy signer while callback is pending
     signer.cleanup();

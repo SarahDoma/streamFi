@@ -18,13 +18,10 @@ describe('GraphQLIndexer Memory Leak & Boundary Check Regression Tests', () => {
 
   it('subscribes and properly cleans up active subscriptions on unsubscribe()', async () => {
     const indexer = new GraphQLIndexer('https://indexer.streamfi.io/graphql');
-    let receivedDataCount = 0;
 
     const sub = indexer.subscribe({
       query: 'subscription { streamUpdated { id } }',
-      onData: () => {
-        receivedDataCount++;
-      },
+      onData: () => {},
     });
 
     expect(indexer.getSubscriptionCount()).toBe(1);
@@ -39,9 +36,9 @@ describe('GraphQLIndexer Memory Leak & Boundary Check Regression Tests', () => {
   it('cleans up all active subscriptions on indexer.cleanup() without memory leak', () => {
     const indexer = new GraphQLIndexer('https://indexer.streamfi.io/graphql');
 
-    const sub1 = indexer.subscribe({ query: 'subscription { sub1 }', onData: () => {} });
-    const sub2 = indexer.subscribe({ query: 'subscription { sub2 }', onData: () => {} });
-    const sub3 = indexer.subscribe({ query: 'subscription { sub3 }', onData: () => {} });
+    indexer.subscribe({ query: 'subscription { sub1 }', onData: () => {} });
+    indexer.subscribe({ query: 'subscription { sub2 }', onData: () => {} });
+    indexer.subscribe({ query: 'subscription { sub3 }', onData: () => {} });
 
     expect(indexer.getSubscriptionCount()).toBe(3);
 

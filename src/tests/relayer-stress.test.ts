@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { WebSocketRelayer } from '../relayer/WebSocketRelayer.js';
 
-function createMockWs(): { mock: any; onmessage: Function | null } {
+function createMockWs(): { mock: any; onmessage: () => Function | null } {
   let onmessage: Function | null = null;
   let onopen: Function | null = null;
   const mock = {

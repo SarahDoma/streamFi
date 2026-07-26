@@ -46,14 +46,14 @@ describe('StreamsModule.create() deprecation warning (#62)', () => {
     const params: CreateStreamParams = {
       recipient: 'GRECIPIENTDUMMYAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
       token: 'CTOKENDUMMYAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
-      depositAmount: 100,
+      depositAmount: '100',
       durationSeconds: 3600,
     };
 
     await mod.create(params).catch(() => {});
 
     const deprecationWarnings = warnSpy.mock.calls.filter(
-      (call) => typeof call[0] === 'string' && call[0].includes('StreamsModule.create()'),
+      (call: unknown[]) => typeof call[0] === 'string' && call[0].includes('StreamsModule.create()'),
     );
     expect(deprecationWarnings.length).toBe(1);
     expect(deprecationWarnings[0][0]).toContain('StreamBuilder');
@@ -66,14 +66,14 @@ describe('StreamsModule.create() deprecation warning (#62)', () => {
     const params: CreateStreamParams = {
       recipient: 'GRECIPIENTDUMMYAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
       token: 'CTOKENDUMMYAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
-      depositAmount: 100,
+      depositAmount: '100',
       durationSeconds: 3600,
     };
 
     await mod.create(params).catch(() => {});
 
     const deprecationWarnings = warnSpy.mock.calls.filter(
-      (call) => typeof call[0] === 'string' && call[0].includes('StreamsModule.create()'),
+      (call: unknown[]) => typeof call[0] === 'string' && call[0].includes('StreamsModule.create()'),
     );
     expect(deprecationWarnings.length).toBe(0);
   });
