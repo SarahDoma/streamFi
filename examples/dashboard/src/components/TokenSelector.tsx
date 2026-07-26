@@ -18,7 +18,7 @@ export interface Token {
 
 export interface TokenSelectorProps {
   /** Full list of tokens to display in the dropdown. */
-  tokens: Token[];
+  tokens?: Token[] | null;
   /** Currently selected token. Pass `null` for no selection. */
   value: Token | null;
   /** Called when the user picks a token. */
@@ -49,17 +49,22 @@ export const TokenSelector: React.FC<TokenSelectorProps> = ({
   const searchRef = useRef<HTMLInputElement>(null);
   const listboxId = useId();
 
+  const safeTokens = Array.isArray(tokens) ? tokens : [];
+
   // -------------------------------------------------------------------------
   // Filtered list
   // -------------------------------------------------------------------------
 
   const filtered = query.trim()
-    ? tokens.filter(
-        (t) =>
-          t.symbol.toLowerCase().includes(query.toLowerCase()) ||
-          t.name.toLowerCase().includes(query.toLowerCase()),
-      )
-    : tokens;
+    ? safeTokens.filter((t) => {
+        const symbol = typeof t?.symbol === "string" ? t.symbol : "";
+        const name = typeof t?.name === "string" ? t.name : "";
+        return (
+          symbol.toLowerCase().includes(query.toLowerCase()) ||
+          name.toLowerCase().includes(query.toLowerCase())
+        );
+      })
+    : safeTokens;
 
   // -------------------------------------------------------------------------
   // Open / close helpers
