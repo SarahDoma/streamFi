@@ -12,6 +12,7 @@ import {
   NETWORK_PASSPHRASE,
   DEFAULT_RPC,
 } from './soroban.js';
+import { SUPPORTED_NETWORKS, UnsupportedChainError } from './errors.js';
 
 export class FactoryModule {
   private readonly rpcUrl:      string;
@@ -20,6 +21,12 @@ export class FactoryModule {
   private readonly callerAddr:  string;
 
   constructor(private readonly config: ConduitConfig) {
+    // Guard against direct construction with an unsupported network, which
+    // would bypass the ConduitClient validation gate and produce a confusing
+    // StrKey error deep inside stellar-sdk (fixes #157).
+    if (!(SUPPORTED_NETWORKS as readonly string[]).includes(config.network)) {
+      throw new UnsupportedChainError(config.network);
+    }
     this.rpcUrl     = config.rpcUrl     ?? DEFAULT_RPC[config.network];
     this.passphrase = NETWORK_PASSPHRASE[config.network];
     // There is no known default DripFactory deployment for any network —
