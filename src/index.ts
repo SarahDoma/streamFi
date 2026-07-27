@@ -15,6 +15,9 @@ export type { ConduitContract } from './errors.js';
 export * from './types/index.js';
 export * from './adapters/index.js';
 export { FeeEstimator } from './fee-estimator.js';
+export { WebSocketRelayer } from './relayer/WebSocketRelayer.js';
+export { ErrorMapper } from './relayer/ErrorMapper.js';
+export type { MappedErrorHandler } from './relayer/ErrorMapper.js';
 
 // Utils are exported via the /utils subpath export, but also available here
 export {
