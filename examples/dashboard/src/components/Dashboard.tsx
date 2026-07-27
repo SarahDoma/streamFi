@@ -1,5 +1,7 @@
 import React, { useState, useCallback } from "react";
 import styles from "./Dashboard.module.css";
+import { ErrorBoundary } from "./ErrorBoundary";
+import { TransactionHistory } from "./TransactionHistory";
 import {
   Notifications,
   Notification,
@@ -260,6 +262,12 @@ export const Dashboard: React.FC<DashboardProps> = ({
             </div>
           </aside>
         </section>
+
+        {/* Transaction History — wrapped in an error boundary so a render
+            failure here can never take down the whole dashboard (#136). */}
+        <ErrorBoundary label="Transaction History">
+          <TransactionHistory walletAddress={walletAddress} />
+        </ErrorBoundary>
       </main>
     </div>
   );
