@@ -25,7 +25,7 @@ describe('WebSocketRelayer — High-Concurrency Stress Tests', () => {
     const created = createMockWs();
     mockWs = created.mock;
     getOnmessage = created.onmessage;
-    (global as any).WebSocket = vi.fn(() => mockWs) as any;
+    (global as any).WebSocket = vi.fn(function () { return mockWs; }) as any;
     relayer = new WebSocketRelayer('ws://localhost:8080', {
       maxReconnectAttempts: 2,
       reconnectDelayMs: 10,
@@ -76,7 +76,7 @@ describe('WebSocketRelayer — High-Concurrency Stress Tests', () => {
       }
     }
 
-    (global as any).WebSocket = vi.fn(() => new ErroringWebSocket()) as any;
+    (global as any).WebSocket = vi.fn(function () { return new ErroringWebSocket(); }) as any;
     const failingRelayer = new WebSocketRelayer('ws://localhost:65535', {
       maxReconnectAttempts: 0,
       reconnectDelayMs: 1,
