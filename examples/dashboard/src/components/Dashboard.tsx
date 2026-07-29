@@ -22,6 +22,8 @@ interface DashboardProps {
   network?: string;
   /** Callback to navigate to the Profile page. */
   onNavigateProfile?: () => void;
+  /** Callback to navigate to the Settings page. */
+  onNavigateSettings?: () => void;
 }
 
 export const Dashboard: React.FC<DashboardProps> = ({
@@ -29,6 +31,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   walletAddress = "",
   network: _network,
   onNavigateProfile,
+  onNavigateSettings,
 }) => {
   const {
     data: statsData,
@@ -145,7 +148,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
             {createLoading ? "Creating..." : "New Stream"}
           </button>
           <button className={styles.buttonSecondary} onClick={onNavigateProfile}>Profile</button>
-          <button className={styles.buttonSecondary}>Settings</button>
+          <button className={styles.buttonSecondary} onClick={onNavigateSettings}>Settings</button>
         </div>
       </header>
 
@@ -220,14 +223,14 @@ export const Dashboard: React.FC<DashboardProps> = ({
                     </tr>
                   ) : (
                     streams.map((stream) => (
-                      <tr key={stream.id}>
-                        <td>#{stream.streamId}</td>
+                      <tr key={stream.id ?? stream.streamId ?? Math.random()}>
+                        <td>#{stream.streamId ?? "—"}</td>
                         <td>
-                          {stream.recipient.length > 12
-                            ? `${stream.recipient.slice(0, 6)}...${stream.recipient.slice(-4)}`
-                            : stream.recipient}
+                          {(stream.recipient ?? "").length > 12
+                            ? `${(stream.recipient ?? "").slice(0, 6)}...${(stream.recipient ?? "").slice(-4)}`
+                            : (stream.recipient ?? "—")}
                         </td>
-                        <td>{stream.ratePerSecond} stroops/s</td>
+                        <td>{stream.ratePerSecond ?? "0"} stroops/s</td>
                         <td>
                           <span
                             className={
@@ -236,13 +239,13 @@ export const Dashboard: React.FC<DashboardProps> = ({
                                 : styles.badgePaused
                             }
                           >
-                            {stream.status}
+                            {stream.status ?? "UNKNOWN"}
                           </span>
                         </td>
                         <td>
                           <button
                             className={styles.buttonSmall}
-                            onClick={() => handleWithdraw(stream.id)}
+                            onClick={() => stream.id && handleWithdraw(stream.id)}
                             disabled={withdrawLoading}
                           >
                             Withdraw
