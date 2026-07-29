@@ -118,6 +118,11 @@ describe('WalletConnectAdapter', () => {
       });
 
       const disconnectPromise = adapter.disconnect();
+      // Attach a handler immediately (fake timers mean the rejection can
+      // settle before the `.rejects` assertion below attaches its own),
+      // otherwise Node reports an "unhandled rejection handled asynchronously"
+      // warning that vitest can misattribute to an unrelated test.
+      disconnectPromise.catch(() => undefined);
       await vi.advanceTimersByTimeAsync(25);
 
       await expect(disconnectPromise).rejects.toThrow(/disconnect\(\).*timed out/i);

@@ -63,7 +63,7 @@ describe('ConduitBatcher validation', () => {
 
   it('should reject item with invalid sender (non G-address)', () => {
     const result = ConduitBatcher.execute([
-      { token: 'CDLZFC3SYJYDZT7K3VZ3B7GJ4G5FCAH5G6O6V7J7K7L7M7N7O7P7Q7R7S', sender: 'not-a-valid-key', recipient: 'GB1', amount: 100 },
+      { token: 'CAAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQC526', sender: 'not-a-valid-key', recipient: 'GB1', amount: 100 },
     ]);
     expect(result.success).toBe(false);
     expect(result.errors).toBeDefined();
@@ -72,7 +72,7 @@ describe('ConduitBatcher validation', () => {
 
   it('should reject item with invalid recipient (non G-address)', () => {
     const result = ConduitBatcher.execute([
-      { token: 'CDLZFC3SYJYDZT7K3VZ3B7GJ4G5FCAH5G6O6V7J7K7L7M7N7O7P7Q7R7S', sender: 'GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN', recipient: 'bad-recipient', amount: 100 },
+      { token: 'CAAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQC526', sender: 'GAAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQDZ7H', recipient: 'bad-recipient', amount: 100 },
     ]);
     expect(result.success).toBe(false);
     expect(result.errors).toBeDefined();
@@ -81,7 +81,7 @@ describe('ConduitBatcher validation', () => {
 
   it('should reject item with zero amount', () => {
     const result = ConduitBatcher.execute([
-      { token: 'CDLZFC3SYJYDZT7K3VZ3B7GJ4G5FCAH5G6O6V7J7K7L7M7N7O7P7Q7R7S', sender: 'GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN', recipient: 'GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN', amount: 0 },
+      { token: 'CAAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQC526', sender: 'GAAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQDZ7H', recipient: 'GAAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQDZ7H', amount: 0 },
     ]);
     expect(result.success).toBe(false);
     expect(result.errors).toBeDefined();
@@ -90,7 +90,7 @@ describe('ConduitBatcher validation', () => {
 
   it('should reject item with negative amount', () => {
     const result = ConduitBatcher.execute([
-      { token: 'CDLZFC3SYJYDZT7K3VZ3B7GJ4G5FCAH5G6O6V7J7K7L7M7N7O7P7Q7R7S', sender: 'GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN', recipient: 'GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN', amount: -50 },
+      { token: 'CAAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQC526', sender: 'GAAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQDZ7H', recipient: 'GAAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQDZ7H', amount: -50 },
     ]);
     expect(result.success).toBe(false);
     expect(result.errors).toBeDefined();
@@ -101,9 +101,9 @@ describe('ConduitBatcher validation', () => {
     const validPayload = [{
       method: 'create',
       params: { amount: 100 },
-      token: 'CDLZFC3SYJYDZT7K3VZ3B7GJ4G5FCAH5G6O6V7J7K7L7M7N7O7P7Q7R7S',
-      sender: 'GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN',
-      recipient: 'GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN',
+      token: 'CAAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQC526',
+      sender: 'GAAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQDZ7H',
+      recipient: 'GAAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQDZ7H',
     }];
     const result = ConduitBatcher.execute(validPayload);
     expect(result.success).toBe(true);
@@ -135,7 +135,7 @@ describe('ConduitBatcher validation', () => {
 describe('StreamBuilder address validation', () => {
   it('should accept valid token (C-address)', () => {
     const builder = new StreamBuilder();
-    expect(() => builder.token('CDLZFC3SYJYDZT7K3VZ3B7GJ4G5FCAH5G6O6V7J7K7L7M7N7O7P7Q7R7S')).not.toThrow();
+    expect(() => builder.token('CAAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQC526')).not.toThrow();
   });
 
   it('should reject invalid token address', () => {
@@ -150,7 +150,7 @@ describe('StreamBuilder address validation', () => {
 
   it('should accept valid sender (G-address)', () => {
     const builder = new StreamBuilder();
-    expect(() => builder.sender('GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN')).not.toThrow();
+    expect(() => builder.sender('GAAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQDZ7H')).not.toThrow();
   });
 
   it('should reject invalid sender address', () => {
@@ -160,7 +160,7 @@ describe('StreamBuilder address validation', () => {
 
   it('should accept valid recipient (G-address)', () => {
     const builder = new StreamBuilder();
-    expect(() => builder.recipient('GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN')).not.toThrow();
+    expect(() => builder.recipient('GAAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQDZ7H')).not.toThrow();
   });
 
   it('should reject invalid recipient address', () => {

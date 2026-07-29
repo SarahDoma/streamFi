@@ -66,9 +66,12 @@ function parseGovernorConfig(val: xdr.ScVal): GovernorConfig {
   }
   return {
     feeBps:             m['fee_bps']?.u32() ?? 0,
-    feeRecipient:       m['fee_recipient'] ? Address.fromScVal(m['fee_recipient']).toString() : undefined,
     minDurationSeconds: m['min_duration_seconds'] ? Number(scValToU64(m['min_duration_seconds'])) : 0,
     maxRatePerSecond:   m['max_rate_per_second'] ? scValToI128(m['max_rate_per_second']) : 0n,
-    factoryAddress:     m['factory_address'] ? Address.fromScVal(m['factory_address']).toString() : undefined,
+    // exactOptionalPropertyTypes forbids assigning `undefined` to an optional
+    // key directly — the key must be entirely absent instead, hence the
+    // conditional spreads rather than `feeRecipient: ... ? ... : undefined`.
+    ...(m['fee_recipient'] ? { feeRecipient: Address.fromScVal(m['fee_recipient']).toString() } : {}),
+    ...(m['factory_address'] ? { factoryAddress: Address.fromScVal(m['factory_address']).toString() } : {}),
   };
 }
