@@ -9,6 +9,8 @@ All notable changes are documented here. Format based on [Keep a Changelog](http
 - `StreamsModule.estimateFee(operation)` runs a Soroban simulation for any stream operation and returns the exact estimated network fee (`FeeEstimate` with `totalFee`, `resourceFee`, `baseFee`, `instructions`) so the UI can display the fee before the user clicks "Create Stream".
 - `Module36` stream snapshot diff engine with LRU memoization for Feature #36 (#370); `getPerformanceMetrics()` reports an honest, workload-dependent measured speedup rather than a fixed percentage
 - `Module26` stream portfolio aggregator with LRU memoization for Feature #26 (#360); `getPerformanceMetrics()` reports an honest, workload-dependent measured speedup rather than a fixed percentage
+- Direct unit tests closing the `src/soroban.ts` test gaps: `queryXlmBalance()` (mocked `simulateTransaction` responses, incl. the error path) and `estimateRequiredFee()` (fallback value + `minResourceFee`/`fee` extraction shapes) (#460, #461)
+- Direct unit tests for `resolvePassphrase()` covering explicit passphrase present/blank, named network known/unknown, and neither-provided branches (#462)
 - `StreamsModule.forceCancel()` — wraps the contract's `force_cancel()` so a recipient can force-cancel a stream paused beyond the 30-day threshold (previously only a prose TODO; `StreamErrorCode.PauseThresholdNotMet` is now reachable through the SDK) (#453)
 - `StreamsModule.transferRecipient()` — wraps the contract's `transfer_recipient()` so the current recipient can reassign the recipient role (previously only a prose TODO) (#454)
 
@@ -25,6 +27,7 @@ All notable changes are documented here. Format based on [Keep a Changelog](http
 - Replaced orphaned `MAX_ROOM_SIZE` `.env.example` with a comprehensive SDK environment configuration template and updated `README.md` (#441).
 - Added an API reference section for `GraphQLIndexer`, which was previously exported but undocumented.
 - Added a "Wallet Adapters" API reference section documenting `KeypairWalletAdapter`.
+- Documented `StreamBuilder.ratePerSecond()` and `StreamBuilder.submit()` (with full `SubmitOptions`) in `docs/api.md`, previously omitted from the Fluent Builder reference (#463).
 - Documented `ConduitClient`'s `pauseStream()`, `unpauseStream()`, and `setWallet()` convenience methods in `docs/api.md`, and fixed `setWallet()`'s JSDoc block, which had been orphaned above `pauseStream()`/`unpauseStream()` and left `setWallet()` itself undocumented.
 
 ### Fixed
