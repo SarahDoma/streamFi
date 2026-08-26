@@ -10,7 +10,7 @@ Module map and call flow for `conduit-sdk`. For the full method-by-method refere
 ```
 index.ts          — public exports: ConduitClient, ConduitError/ErrorCode, types, utils
 client.ts         — ConduitClient: owns config, instantiates the three modules below
-  ├─ streams.ts    — StreamsModule:  create/get/withdraw/cancel/pause/resume/topUp/forceCancel/transferRecipient/clawback/list/subscribe
+  ├─ streams.ts    — StreamsModule:  create/get/withdraw/streamedTotal/cancel/pause/resume/topUp/forceCancel/transferRecipient/clawback/list/subscribe
   ├─ factory.ts    — FactoryModule:  streamCount/streamAddress/streamsBySender/streamsByRecipient/protocolFeeBps
   └─ governor.ts   — GovernorModule: (config reads — see docs/api.md)
 soroban.ts         — buildContractCallTx/simulateReadOnly/getServer/clearServerCache/createRpcServer + NETWORK_PASSPHRASE/DEFAULT_RPC tables
@@ -137,6 +137,6 @@ array instead.
 
 ## What's *not* wrapped yet
 
-`DripStream::streamed_total` exists on the contract (see `conduit-contracts`) but has no
-corresponding method on `StreamsModule` yet. (`force_cancel` and `transfer_recipient` are
-wrapped as `StreamsModule.forceCancel()` and `StreamsModule.transferRecipient()`.)
+`DripStream::force_cancel`, `transfer_recipient`, and `streamed_total` are all now
+wrapped on `StreamsModule` (`forceCancel()`, `transferRecipient()`, `streamedTotal()`).
+There is currently no unwrapped `DripStream` contract surface.

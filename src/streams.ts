@@ -297,6 +297,23 @@ export class StreamsModule {
     return scValToI128(val);
   }
 
+  /**
+   * Get the cumulative amount streamed since the stream started, in stroops.
+   *
+   * Unlike {@link withdrawable}, which reflects only the unwithdrawn portion,
+   * this exposes the total amount that has vested regardless of withdrawals —
+   * useful for progress displays that shouldn't reset visually after a
+   * withdrawal. Read-only, no transaction.
+   */
+  async streamedTotal(streamId: bigint | string): Promise<bigint> {
+    const id   = BigInt(streamId);
+    const addr = await this._resolveAddr(id);
+    const caller = await this._resolveCallerAddress();
+    const tx   = await buildContractCallTx(this.rpcUrl, this.passphrase, caller, addr, 'streamed_total', []);
+    const val  = await this._simulateTx(tx);
+    return scValToI128(val);
+  }
+
   /** Withdraw tokens as the recipient. Defaults to full available balance. */
   async withdraw(streamId: bigint | string, amount?: bigint): Promise<string> {
     this._ensureCanMutate();

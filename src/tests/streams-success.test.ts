@@ -289,6 +289,47 @@ describe('StreamsModule.create() — success path', () => {
   });
 });
 
+describe('StreamsModule.streamedTotal() — read-only wrapper', () => {
+  beforeEach(() => {
+    mockStreamAddress.mockResolvedValue(STREAM_ADDR);
+  });
+
+  it('returns the cumulative streamed amount from the simulation retval', async () => {
+    mockSimulate.mockResolvedValue(simSuccess(i128Scv(123_456n)));
+
+    const { StreamsModule } = await import('../streams.js');
+    const sdk = new StreamsModule(makeConfig());
+
+    const total = await sdk.streamedTotal(7n);
+    expect(total).toBe(123_456n);
+    expect(mockStreamAddress).toHaveBeenCalledWith(7n);
+  });
+
+  it('reflects cumulative vesting even when withdrawals have occurred', async () => {
+    // 1_000_000 stroops streamed total, of which 400_000 were withdrawn —
+    // streamedTotal must return the full cumulative amount, not the remainder.
+    mockSimulate.mockResolvedValue(simSuccess(i128Scv(1_000_000n)));
+
+    const { StreamsModule } = await import('../streams.js');
+    const sdk = new StreamsModule(makeConfig());
+
+    const total = await sdk.streamedTotal(7n);
+    expect(total).toBe(1_000_000n);
+  });
+
+  it('throws a ConduitError scoped to "stream" on simulation failure', async () => {
+    mockSimulate.mockResolvedValue(simError('HostError: Error(Contract, #2)')); // StreamNotFound
+
+    const { StreamsModule } = await import('../streams.js');
+    const sdk = new StreamsModule(makeConfig());
+
+    const err = await sdk.streamedTotal(999n).catch(e => e);
+    expect(err).toBeInstanceOf(ConduitError);
+    expect((err as ConduitError).contract).toBe('stream');
+    expect((err as ConduitError).code).toBe(2);
+  });
+});
+
 describe('StreamsModule.clawback() — success path', () => {
   it('reads the reclaimed amount from the confirmed transaction, not the simulation', async () => {
     mockStreamAddress.mockResolvedValue(STREAM_ADDR);

@@ -262,6 +262,19 @@ const amount = await client.streams.withdrawable(streamId: bigint | string);
 
 ---
 
+#### `streamedTotal(streamId)`
+
+Get the cumulative amount streamed since the stream started, regardless of withdrawals. Read-only, no transaction.
+
+```typescript
+const total = await client.streams.streamedTotal(streamId: bigint | string);
+// Returns: bigint (cumulative stroops streamed since start)
+```
+
+Unlike `withdrawable()` (which reflects only the unwithdrawn portion), this value does not reset after a withdrawal — useful for progress displays that should keep counting up.
+
+---
+
 #### `withdraw(streamId, amount?)`
 
 Withdraw tokens as the recipient.

@@ -59,6 +59,20 @@ Current withdrawable balance in stroops. Read-only, no transaction.
 
 ---
 
+### `streamedTotal(streamId) → Promise<bigint>`
+
+Cumulative amount streamed since the stream started, in stroops — regardless of
+withdrawals. Unlike `withdrawable()`, which reflects only the unwithdrawn
+portion, this value never resets after a withdrawal, so it is suitable for
+progress displays that should keep counting up. Read-only, no transaction.
+
+```typescript
+const total = await client.streams.streamedTotal(streamId);
+// Returns: bigint (cumulative stroops streamed since start)
+```
+
+---
+
 ### `withdraw(streamId, amount?) → Promise<string>`
 
 | Param | Type | Notes |
