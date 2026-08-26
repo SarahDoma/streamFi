@@ -8,6 +8,8 @@ All notable changes are documented here. Format based on [Keep a Changelog](http
 - `StreamsModule.estimateFee(operation)` runs a Soroban simulation for any stream operation and returns the exact estimated network fee (`FeeEstimate` with `totalFee`, `resourceFee`, `baseFee`, `instructions`) so the UI can display the fee before the user clicks "Create Stream".
 - `Module36` stream snapshot diff engine with LRU memoization for Feature #36 (#370); `getPerformanceMetrics()` reports an honest, workload-dependent measured speedup rather than a fixed percentage
 - `Module26` stream portfolio aggregator with LRU memoization for Feature #26 (#360); `getPerformanceMetrics()` reports an honest, workload-dependent measured speedup rather than a fixed percentage
+- `StreamsModule.forceCancel()` — wraps the contract's `force_cancel()` so a recipient can force-cancel a stream paused beyond the 30-day threshold (previously only a prose TODO; `StreamErrorCode.PauseThresholdNotMet` is now reachable through the SDK) (#453)
+- `StreamsModule.transferRecipient()` — wraps the contract's `transfer_recipient()` so the current recipient can reassign the recipient role (previously only a prose TODO) (#454)
 
 ### Performance
 - `FactoryModule.streamAddress()` now caches resolved stream→contract-address lookups in-memory, since the mapping is fixed at stream creation and never changes. Eliminates redundant RPC round trips on every `StreamsModule` read/write operation (`get`, `withdraw`, `cancel`, `pause`, `resume`, `topUp`, `clawback`) and on each page of `list()`, which previously re-resolved the same address for every stream on every call.
@@ -19,6 +21,8 @@ All notable changes are documented here. Format based on [Keep a Changelog](http
 - Documented `ConduitClient`'s `pauseStream()`, `unpauseStream()`, and `setWallet()` convenience methods in `docs/api.md`, and fixed `setWallet()`'s JSDoc block, which had been orphaned above `pauseStream()`/`unpauseStream()` and left `setWallet()` itself undocumented.
 
 ### Fixed
+- `StreamsModule.withdraw()` / `topUp()` now reject `amount <= 0n` client-side (before any RPC round-trip), matching `create()`'s fail-fast validation philosophy instead of relying on the contract's `InvalidAmount` simulate+reject cycle (#451)
+- `StreamsModule.list()` no longer silently drops `recipient` when both `sender` and `recipient` are provided — it now returns the de-duplicated union of both filters (#452)
 - **Critical:** `FeeEstimator.estimateFee()` now uses `bigint` stroops instead of floating-point for fee representation, eliminating IEEE-754 precision loss. All monetary amounts in the SDK now consistently use bigint to avoid rounding errors.
 - **Critical:** `WalletConnectAdapter.signTransaction()` now requires `networkPassphrase` to be explicitly provided, preventing silently reconstructed Transaction objects with empty passphrases. Throws clear error if passphrase is missing.
 - **Critical:** `StreamBuilder.submit()` now properly removes failed payloads from `pendingQueue` in a finally block, preventing queue overflow from accumulated failed submissions under sustained network failures.
@@ -29,8 +33,7 @@ All notable changes are documented here. Format based on [Keep a Changelog](http
 
 ### Planned
 - `@conduit-protocol/react` hooks package (`useStream`, `useWithdraw`, `useStreamList`)
-- Support for `transfer_recipient()` contract function
-- `streams.forceCancel()` wrapping the new `force_cancel()` contract function
+- `StreamsModule.streamedTotal()` wrapping the `streamed_total()` contract function
 
 ---
 
