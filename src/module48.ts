@@ -112,7 +112,10 @@ export class Module48 {
     this.cacheMisses++;
     const withdrawable = withdrawableLocal(item.stream, nowSec);
 
-    const progress = streamProgress(item.stream, nowSec);
+    // `streamProgress` returns NaN for open-ended streams (endTime === 0);
+    // treat that as the midpoint (0.5), matching Module36's normalisation.
+    const rawProgress = streamProgress(item.stream, nowSec);
+    const progress = Number.isNaN(rawProgress) ? 0.5 : rawProgress;
 
     const computedAt = nowSec;
 

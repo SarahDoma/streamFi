@@ -1,5 +1,4 @@
 import { Keypair, Transaction } from '@stellar/stellar-sdk';
-import type { WalletAdapter } from './adapters/types.js';
 
 export interface Signer {
   sign(tx: Transaction): void | Promise<void>;

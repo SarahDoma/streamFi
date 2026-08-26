@@ -8,10 +8,10 @@ describe('Module49 (SDK Feature #49)', () => {
 
   const mockStream: StreamInfo = {
     id: 1n,
+    address: 'CBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFXYCZLYC3ZCHB2D4P3C',
     sender: 'GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFXYCZLYC3ZCHB2D4P3CF',
     recipient: 'GA7QYNF7SOWQ3GLR2BGMZEHXAVIRZA4KVWLTJJFC7MGXUA74P7UJVSGZ',
     token: 'native',
-    depositAmount: 1000000000n,
     ratePerSecond: 100n,
     startTime: 500,
     endTime: 1500,

@@ -107,8 +107,11 @@ export function subscribeToStream(
         }
       }
 
-      if (response.cursor) {
-        cursor = response.cursor;
+      // `@stellar/stellar-sdk`'s GetEventsResponse type doesn't declare `cursor`
+      // yet, though the RPC returns it — read it defensively.
+      const responseCursor = (response as { cursor?: string }).cursor;
+      if (responseCursor) {
+        cursor = responseCursor;
       } else {
         cursor = undefined;
         if (response.latestLedger !== undefined) {
