@@ -253,6 +253,46 @@ describe('withdrawableLocal', () => {
     const s    = makeStream({ ratePerSecond: rate, startTime: now - 1000, withdrawn: 50_000n });
     expect(withdrawableLocal(s, now)).toBe(rate * 1000n - 50_000n);
   });
+
+  // ── Regression for #521 ───────────────────────────────────────────────────
+  // A stream paused *after* end_time has fully streamed; the pause freeze
+  // must not under-report by reverting to pausedAt < endTime. The correct
+  // effectiveNow is endTime, not pausedAt.
+  it('returns full streamed amount when paused past endTime (#521)', () => {
+    const now      = Math.floor(Date.now() / 1000);
+    const rate     = 100n;
+    const start    = now - 3000;
+    const end      = now - 1000; // ended 1000 s ago
+    const pausedAt = now - 500;  // paused 500 s after end (i.e. pausedAt > endTime)
+    const s = makeStream({
+      ratePerSecond: rate,
+      startTime:     start,
+      endTime:       end,
+      paused:        true,
+      pausedAt,
+    });
+    // On-chain: endTime clamp wins → streamed = rate × (end − start) = 100 × 2000
+    // Old (buggy) code: pause wins → streamed = rate × (pausedAt − start) = 100 × 2500 (wrong)
+    expect(withdrawableLocal(s, now)).toBe(rate * 2000n);
+  });
+
+  it('freezes at pausedAt when paused before endTime (#521)', () => {
+    const now      = Math.floor(Date.now() / 1000);
+    const rate     = 100n;
+    const start    = now - 2000;
+    const end      = now + 1000; // not yet ended
+    const pausedAt = now - 500;  // paused before endTime — pause should still freeze clock
+    const s = makeStream({
+      ratePerSecond: rate,
+      startTime:     start,
+      endTime:       end,
+      paused:        true,
+      pausedAt,
+    });
+    // pausedAt < clampedNow (= nowSec, since nowSec < endTime) → freeze at pausedAt
+    // streamed = rate × (pausedAt − start) = 100 × 1500
+    expect(withdrawableLocal(s, now)).toBe(rate * 1500n);
+  });
 });
 
 // ── bigintSafeStringify ─────────────────────────────────────────────────────

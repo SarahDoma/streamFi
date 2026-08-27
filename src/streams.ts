@@ -74,7 +74,6 @@ import { ZERO_ADDR, DEFAULT_LIST_LIMIT, clampListLimit } from './constants.js';
 export class StreamsModule {
   private readonly rpcUrl:     string;
   private readonly passphrase: string;
-  private readonly callerAddr: string;
   private readonly _factory:   FactoryModule;
   private activeWallet?:       WalletAdapter;
 
@@ -105,7 +104,6 @@ export class StreamsModule {
   constructor(private readonly config: ConduitConfig) {
     this.rpcUrl     = config.rpcUrl ?? DEFAULT_RPC[config.network];
     this.passphrase = NETWORK_PASSPHRASE[config.network];
-    this.callerAddr = this._signerPublicKey();
     this._factory   = new FactoryModule(config);
 
     if (config.wallet) {
@@ -705,11 +703,11 @@ export class StreamsModule {
       return signed;
     }
     if (this.config.signer) {
-      const result = this.config.signer.sign(tx);
-      if (result != null) {
-        await result;
-      }
-      return tx;
+      const result = await this.config.signer.sign(tx);
+      // Signer implementations may return a new signed Transaction (immutable
+      // style) or mutate tx in place and return void. Use the return value when
+      // it is a Transaction instance; fall back to the original tx otherwise.
+      return (result instanceof Transaction) ? result : tx;
     }
     if (this.config.keypair) {
       tx.sign(this.config.keypair);
@@ -821,10 +819,10 @@ function parseStreamInfo(id: bigint, address: string, val: xdr.ScVal): StreamInf
     startTime:       m['start_time']      ? Number(scValToU64(m['start_time']))               : 0,
     endTime:         m['end_time']        ? Number(scValToU64(m['end_time']))                 : 0,
     withdrawn:       m['withdrawn']       ? scValToI128(m['withdrawn'])                       : 0n,
-    paused:          m['paused']?.b()     ?? false,
+    paused:          m['paused']          != null ? (m['paused'].b() ?? false)          : false,
     pausedAt:        m['paused_at']       ? Number(scValToU64(m['paused_at']))                : 0,
-    cancelled:       m['cancelled']?.b()  ?? false,
-    clawbackEnabled: m['clawback_enabled']?.b() ?? false,
+    cancelled:       m['cancelled']       != null ? (m['cancelled'].b() ?? false)       : false,
+    clawbackEnabled: m['clawback_enabled'] != null ? (m['clawback_enabled'].b() ?? false) : false,
   };
   (info as StreamInfo & { toJSON(): Record<string, unknown> }).toJSON = () => bigintSafeStringify(info as unknown as Record<string, unknown>);
   return info;

@@ -104,11 +104,16 @@ export function streamProgress(stream: StreamInfo, nowSec = Math.floor(Date.now(
 export function withdrawableLocal(stream: StreamInfo, nowSec = Math.floor(Date.now() / 1000)): bigint {
   if (stream.cancelled) return 0n;
 
-  const effectiveNow = stream.paused
-    ? stream.pausedAt
-    : stream.endTime > 0 && nowSec > stream.endTime
+  // Mirror the on-chain streamed_amount ordering: clamp to endTime first
+  // (unconditional once the stream has ended), then freeze at pausedAt.
+  // A stream paused after end_time has already fully streamed; the pause
+  // only matters while the stream is still running (nowSec <= endTime).
+  const clampedNow = stream.endTime > 0 && nowSec > stream.endTime
     ? stream.endTime
     : nowSec;
+  const effectiveNow = stream.paused && stream.pausedAt < clampedNow
+    ? stream.pausedAt
+    : clampedNow;
 
   if (effectiveNow < stream.startTime) return 0n;
 

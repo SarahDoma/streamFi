@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { Transaction } from '@stellar/stellar-sdk';
+import { Transaction } from '@stellar/stellar-sdk';
 import type { Signer } from '../signer.js';
 import type { WalletAdapter } from '../adapters/types.js';
 
@@ -124,6 +124,44 @@ describe('_signTx — Signer with async/sync sign()', () => {
 
     await expect(runSignTx(sdk, {} as Transaction)).resolves.toBeDefined();
     expect(signed).toBe(true);
+  });
+
+  // ── Regression tests for #519 ─────────────────────────────────────────────
+  // A Signer that returns a new Transaction (immutable-friendly pattern) must
+  // have its return value honoured — not silently discarded.
+
+  it('uses the Transaction returned by a sync Signer.sign() (#519)', async () => {
+    const signedTx = { _isSigned: true } as unknown as Transaction;
+    const returningSigner: Signer = {
+      sign: (_tx: Transaction) => signedTx,
+      publicKey: () => 'GAAZI...',
+    };
+    const { StreamsModule } = await import('../streams.js');
+    const sdk = new StreamsModule({
+      network: 'testnet',
+      factoryAddress: 'CCWAMYJ...',
+      signer: returningSigner,
+    });
+
+    const result = await runSignTx(sdk, {} as Transaction);
+    expect(result).toBe(signedTx);
+  });
+
+  it('uses the Transaction returned by an async Signer.sign() (#519)', async () => {
+    const signedTx = { _isSigned: true } as unknown as Transaction;
+    const asyncReturningSigner: Signer = {
+      sign: async (_tx: Transaction) => signedTx,
+      publicKey: () => 'GAAZI...',
+    };
+    const { StreamsModule } = await import('../streams.js');
+    const sdk = new StreamsModule({
+      network: 'testnet',
+      factoryAddress: 'CCWAMYJ...',
+      signer: asyncReturningSigner,
+    });
+
+    const result = await runSignTx(sdk, {} as Transaction);
+    expect(result).toBe(signedTx);
   });
 });
 
