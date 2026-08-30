@@ -838,4 +838,32 @@ new Module49(config?: Module49Config)
 * `clearCache(): void` - Clears the internal lookup cache and metrics.
 * `getPerformanceMetrics(): Module49Metrics` - Returns real-time metrics (`totalProcessed`, `cacheHits`, `cacheMisses`, `hitRate`, `averageExecutionTimeMs`).
 
+---
+
+## `Module44` (Feature #44)
+
+Stream liquidity-risk / runway calculator implementing Feature #44. For each stream, computes the remaining `runwaySecs` until `endTime` and classifies it into a `LiquidityRiskLevel` (`'inactive' | 'critical' | 'warning' | 'healthy'`), so a dashboard can flag streams about to run out of scheduled balance. Uses the same LRU-memoized lookup pattern as `Module26`/`Module36`/`Module48`; actual speedup is workload-dependent (proportional to cache hit rate) — see `getPerformanceMetrics()` for a measured value, never a fixed assumed percentage.
+
+### Constructor
+
+```typescript
+new Module44(config?: Module44Config)
+```
+
+| Option | Type | Default | Notes |
+|--------|------|---------|-------|
+| `cacheSize` | `number` | `1000` | Max entries in memoization cache |
+| `enableOptimization` | `boolean` | `true` | Enables memoized lookup caching |
+| `batchChunkSize` | `number` | `50` | Stream chunk size for batch processing |
+| `criticalThresholdSecs` | `number` | `86400` (1 day) | Runway below this is `'critical'`. Throws if negative |
+| `warningThresholdSecs` | `number` | `604800` (7 days) | Runway below this (and at/above `criticalThresholdSecs`) is `'warning'`. Throws if not greater than `criticalThresholdSecs` |
+
+### Methods
+
+* `assessSingleItem(item: StreamRiskItem): StreamRiskAssessment` — Computes one stream's `runwaySecs` and `riskLevel`. A cancelled, paused, or zero-rate stream is `'inactive'` with `runwaySecs: 0`. An open-ended stream (`endTime === 0`) is `'healthy'` with `runwaySecs: null` — its runway isn't bounded by a schedule, only by the sender keeping the balance topped up.
+* `assessBatch(items: StreamRiskItem[]): StreamRiskAssessment[]` — Assesses an array of streams in `batchChunkSize` chunks.
+* `estimateTopUpNeeded(stream: StreamInfo, targetRunwaySecs: number, nowSec?: number): bigint` — Stroops needed via `top_up()` for the stream's runway to reach `targetRunwaySecs`. Returns `0n` if the stream is inactive/paused/cancelled, the target is non-positive, or the target is already met (including any open-ended stream, whose runway is treated as unbounded).
+* `clearCache(): void` — Clears the internal lookup cache and metrics.
+* `getPerformanceMetrics(): Module44Metrics` — Returns `totalAssessed`, `cacheHits`, `cacheMisses`, `averageExecutionTimeMs`, and `measuredSpeedupPercent` (a real measurement derived from this instance's own accumulated hit/miss timings, `null` until both have occurred at least once).
+
 
