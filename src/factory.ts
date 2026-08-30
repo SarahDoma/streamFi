@@ -17,6 +17,15 @@ import {
 } from './soroban.js';
 import { SUPPORTED_NETWORKS, UnsupportedChainError } from './errors.js';
 
+/**
+ * A `null` (not-found) `streamAddress` result is cached only briefly — a
+ * stream id that is pending or whose `StreamAddr` registry entry is archived
+ * (streamFi-contracts #407) may become resolvable later without a
+ * `clearAddressCache()` (#568). A *found* address is immutable and cached
+ * for the module's lifetime.
+ */
+const NEGATIVE_ADDRESS_CACHE_TTL_MS = 30_000;
+
 export class FactoryModule {
   private readonly rpcUrl:      string;
   private readonly passphrase:  string;
@@ -36,12 +45,13 @@ export class FactoryModule {
    */
   private _cachedCallerAddr: string | null = null;
 
-  // streamId -> contract address is set once at creation and never changes,
-  // so a resolved (non-null) address can be cached for the lifetime of this
-  // module instance. This avoids re-resolving the same address on every
-  // stream operation (get/withdraw/cancel/pause/... all call streamAddress()
-  // via StreamsModule._resolveAddr, and list() fans this out over a full page).
-  private readonly addressCache = new Map<string, string>();
+  // streamId -> contract address. A resolved (non-null) address is immutable
+  // and cached for the module's lifetime; a `null` result is cached with a
+  // short TTL (see NEGATIVE_ADDRESS_CACHE_TTL_MS) so a dashboard polling
+  // list() over a page with a few archived/pending ids does not re-issue a
+  // stream_address simulation for each of them on every refresh (#568).
+  private readonly addressCache = new Map<string, string | null>();
+  private readonly negativeCacheExpiry = new Map<string, number>();
 
   constructor(private readonly config: ConduitConfig) {
     // Guard against direct construction with an unsupported network, which
@@ -107,6 +117,12 @@ export class FactoryModule {
     return addr;
   }
 
+  /** Drop all cached stream-address resolutions (positive and negative). */
+  clearAddressCache(): void {
+    this.addressCache.clear();
+    this.negativeCacheExpiry.clear();
+  }
+
   /** Total number of streams ever created through this factory. */
   async streamCount(): Promise<bigint> {
     const caller = await this._resolveCallerAddress();
@@ -124,7 +140,14 @@ export class FactoryModule {
     const key = id.toString();
 
     const cached = this.addressCache.get(key);
-    if (cached !== undefined) return cached;
+    if (cached !== undefined) {
+      if (cached !== null) return cached;
+      // Negative hit — honour it only while its TTL is live (#568).
+      const expiresAt = this.negativeCacheExpiry.get(key) ?? 0;
+      if (Date.now() < expiresAt) return null;
+      this.addressCache.delete(key);
+      this.negativeCacheExpiry.delete(key);
+    }
 
     const caller = await this._resolveCallerAddress();
     const tx  = await buildContractCallTx(
@@ -135,14 +158,23 @@ export class FactoryModule {
     const val = await simulateReadOnly(this.rpcUrl, this.passphrase, tx);
 
     // Contract returns Option<Address> — void = None
-    if (val.switch().name === 'scvVoid') return null;
+    if (val.switch().name === 'scvVoid') {
+      this._cacheNegative(key);
+      return null;
+    }
     try {
       const addr = Address.fromScVal(val).toString();
       this.addressCache.set(key, addr);
       return addr;
     } catch {
+      this._cacheNegative(key);
       return null;
     }
+  }
+
+  private _cacheNegative(key: string): void {
+    this.addressCache.set(key, null);
+    this.negativeCacheExpiry.set(key, Date.now() + NEGATIVE_ADDRESS_CACHE_TTL_MS);
   }
 
   /**
