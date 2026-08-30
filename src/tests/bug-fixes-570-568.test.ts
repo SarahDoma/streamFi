@@ -1,9 +1,12 @@
 /**
- * Regression tests for issue #570.
+ * Regression tests for issues #570 and #568.
  *
- * `FactoryModule` — the read-simulation source address is resolved from the
- * configured `wallet` adapter (matching `StreamsModule`), not pinned to
- * `keypair ?? ZERO_ADDR` at construction.
+ * - #570 `FactoryModule` — the read-simulation source address is resolved
+ *   from the configured `wallet` adapter (matching `StreamsModule`), not
+ *   pinned to `keypair ?? ZERO_ADDR` at construction.
+ * - #568 `FactoryModule.streamAddress` — a `null` (not-found) result is
+ *   cached for a short TTL so a polled `list()` page does not re-issue a
+ *   `stream_address` simulation for every missing id on every refresh.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -111,5 +114,45 @@ describe('#570 — FactoryModule resolves the caller from a configured wallet ad
     await new FactoryModule(cfg()).streamCount();
 
     expect(mockBuildTx.mock.calls[0][2]).toBe(ZERO_ADDR);
+  });
+});
+
+// ── #568 ────────────────────────────────────────────────────────────────────
+
+describe('#568 — FactoryModule.streamAddress caches a not-found result', () => {
+  it('does not re-hit the network for an id that resolved to null', async () => {
+    const { FactoryModule } = await import('../factory.js');
+    mockSimulate.mockResolvedValue(voidScVal());
+
+    const factory = new FactoryModule(cfg());
+    expect(await factory.streamAddress(999n)).toBeNull();
+    expect(await factory.streamAddress(999n)).toBeNull();
+
+    expect(mockSimulate).toHaveBeenCalledTimes(1);
+  });
+
+  it('clearAddressCache() drops the negative entry so it is re-resolved', async () => {
+    const { FactoryModule } = await import('../factory.js');
+    mockSimulate.mockResolvedValue(voidScVal());
+
+    const factory = new FactoryModule(cfg());
+    await factory.streamAddress(1n);
+    factory.clearAddressCache();
+    await factory.streamAddress(1n);
+
+    expect(mockSimulate).toHaveBeenCalledTimes(2);
+  });
+
+  it('still caches a resolved address for the module lifetime', async () => {
+    const { FactoryModule } = await import('../factory.js');
+    mockSimulate.mockResolvedValueOnce({ switch: () => ({ name: 'scvAddress' }) });
+
+    const factory = new FactoryModule(cfg());
+    const a = await factory.streamAddress(7n);
+    const b = await factory.streamAddress(7n);
+
+    expect(a).toBe('CADDRESS');
+    expect(b).toBe('CADDRESS');
+    expect(mockSimulate).toHaveBeenCalledTimes(1);
   });
 });
