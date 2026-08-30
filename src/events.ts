@@ -83,17 +83,32 @@ export function subscribeToStream(
 ): Subscription {
   const server       = createRpcServer(rpcUrl);
   const pollInterval = handlers.pollInterval ?? 5000;
-  let   startLedger  = 0;  // fallback cursor for the initial poll
+  const maxBackoffMs = handlers.maxBackoffMs ?? 60_000;
+  const maxConsecutiveFailures = handlers.maxConsecutiveFailures ?? 10;
+  let   startLedger  = 0;  // seeded from getLatestLedger() before the first poll
   let   cursor: string | undefined;
   let   stopped      = false;
   let   timer: ReturnType<typeof setTimeout> | undefined;
+  let   consecutiveFailures = 0;
+  // Last per-contract event sequence seen (topics[2]), for gap detection
+  // across a poll or reconnect — see contracts/stream/src/events.rs.
+  let   lastSequence: bigint | undefined;
 
   async function poll() {
     if (stopped) return;
 
     try {
+      // Soroban RPC's `getEvents` rejects a request that has neither a
+      // `cursor` nor a `startLedger`. Seed `startLedger` from the current
+      // ledger before the first poll; if this seed itself fails it surfaces
+      // as a polling failure and is retried on the next poll.
+      if (!cursor && startLedger === 0) {
+        const latest = await server.getLatestLedger();
+        startLedger = latest.sequence;
+      }
+
       const response = await server.getEvents({
-        ...(cursor ? { cursor } : (startLedger > 0 ? { startLedger } : {})),
+        ...(cursor ? { cursor } : { startLedger }),
         filters: [{
           type:        'contract',
           contractIds: [streamAddress],
@@ -101,9 +116,21 @@ export function subscribeToStream(
         limit: 100,
       });
 
+      consecutiveFailures = 0;
+
       if (response.events.length > 0) {
         for (const event of response.events) {
-          dispatchEvent(event, handlers);
+          const sequence = dispatchEvent(event, handlers);
+          if (sequence !== undefined) {
+            if (lastSequence !== undefined && sequence !== lastSequence + 1n) {
+              try {
+                handlers.onGap?.({ expected: lastSequence + 1n, actual: sequence });
+              } catch (handlerError) {
+                console.warn('[conduit-sdk] event polling onGap handler error:', handlerError);
+              }
+            }
+            lastSequence = sequence;
+          }
         }
       }
 
@@ -119,19 +146,39 @@ export function subscribeToStream(
         }
       }
     } catch (err) {
-      // Swallow polling errors; the subscription continues
       const error = err instanceof Error ? err : new Error(String(err));
-      console.warn('[conduit-sdk] event polling error:', error);
+      consecutiveFailures++;
+      console.warn(
+        `[conduit-sdk] event polling error (failure ${consecutiveFailures}):`,
+        error,
+      );
 
-      // A consumer error handler must not stop future polling.
+      // A consumer error handler must not itself stop future polling.
       try {
         handlers.onError?.(error);
       } catch (handlerError) {
         console.warn('[conduit-sdk] event polling onError handler error:', handlerError);
       }
+
+      // Give up against a permanently-broken endpoint rather than retrying
+      // at a fixed interval forever.
+      if (maxConsecutiveFailures > 0 && consecutiveFailures >= maxConsecutiveFailures) {
+        console.warn(
+          `[conduit-sdk] event polling stopped after ${consecutiveFailures} consecutive failures`,
+        );
+        stopped = true;
+        return;
+      }
     }
 
-    if (!stopped) timer = setTimeout(poll, pollInterval);
+    if (!stopped) {
+      // Exponential backoff while failures persist; a successful poll resets
+      // `consecutiveFailures` to 0, so this is just `pollInterval` in steady state.
+      const delay = consecutiveFailures === 0
+        ? pollInterval
+        : Math.min(pollInterval * 2 ** (consecutiveFailures - 1), maxBackoffMs);
+      timer = setTimeout(poll, delay);
+    }
   }
 
   // Start polling immediately
@@ -158,17 +205,20 @@ export function subscribeToStream(
 
 // Exported (but not re-exported from index.ts) so tests can exercise the
 // tuple-decoding logic directly without standing up a fake RPC server.
+// Returns the event's sequence number (topics[2]) so callers can track gaps
+// across polls/reconnects, or undefined if the event had no topics at all.
 export function dispatchEvent(
   event:    SorobanRpc.Api.EventResponse,
   handlers: StreamEventHandlers,
-): void {
-  // Topics: [symbol, actor_address]
+): bigint | undefined {
+  // Topics: [symbol, actor_address, sequence]
   const topics = event.topic;
-  if (!topics || topics.length < 1) return;
+  if (!topics || topics.length < 1) return undefined;
 
   const topicName = topics[0]?.sym()?.toString() ?? '';
 
-  const actor = addressField(topics[1]);
+  const actor    = addressField(topics[1]);
+  const sequence = topics[2] ? scValToU64(topics[2]) : 0n;
 
   switch (topicName) {
     case TOPIC.WITHDRAWN: {
@@ -180,6 +230,7 @@ export function dispatchEvent(
         amount:         i128Field(fields, 0),
         totalWithdrawn: i128Field(fields, 1),
         remaining:      i128Field(fields, 2),
+        sequence,
       };
       handlers.onWithdraw(data);
       break;
@@ -193,6 +244,7 @@ export function dispatchEvent(
         sender:         actor,
         refundAmount:   i128Field(fields, 0),
         withdrawnSoFar: i128Field(fields, 1),
+        sequence,
       };
       handlers.onCancel(data);
       break;
@@ -206,6 +258,7 @@ export function dispatchEvent(
         sender:       actor,
         pausedAt:     u64Field(fields, 0),
         withdrawable: i128Field(fields, 1),
+        sequence,
       };
       handlers.onPause(data);
       break;
@@ -218,6 +271,7 @@ export function dispatchEvent(
       const data: ResumeEvent = {
         sender:    actor,
         resumedAt: Number(scValToU64(event.value)),
+        sequence,
       };
       handlers.onResume(data);
       break;
@@ -231,6 +285,7 @@ export function dispatchEvent(
         sender:     actor,
         amount:     i128Field(fields, 0),
         newBalance: i128Field(fields, 1),
+        sequence,
       };
       handlers.onTopUp(data);
       break;
@@ -242,9 +297,12 @@ export function dispatchEvent(
       const data: ClawbackEvent = {
         sender: actor,
         amount: scValToI128(event.value),
+        sequence,
       };
       handlers.onClawback(data);
       break;
     }
   }
+
+  return sequence;
 }

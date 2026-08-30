@@ -3,7 +3,6 @@
  */
 
 import { SorobanRpc, nativeToScVal, xdr, Address, Transaction, BASE_FEE, Asset } from '@stellar/stellar-sdk';
-import type { Signer } from './signer.js';
 import type {
   ConduitConfig,
   CreateStreamParams,
@@ -25,6 +24,7 @@ import {
   buildContractCallTx,
   scValToI128,
   scValToU64,
+  scValToU32,
   boolToScVal,
   getTokenDecimals,
   catchNetworkError,
@@ -36,6 +36,11 @@ import {
   DEFAULT_CONFIRMATION_POLL_INTERVAL_MS,
   createRpcServer,
 } from './soroban.js';
+import {
+  STREAM_FLAG_PAUSED,
+  STREAM_FLAG_CANCELLED,
+  STREAM_FLAG_CLAWBACK_ENABLED,
+} from './constants.js';
 import { FactoryModule } from './factory.js';
 import { ConduitError, RateLimitError, InsufficientBalanceError, StreamErrorCode } from './errors.js';
 
@@ -69,7 +74,7 @@ function warnV1Deprecated(methodName: string, replacement: string): void {
     `major version. Use ${replacement} instead.`,
   );
 }
-import { ZERO_ADDR, DEFAULT_LIST_LIMIT, clampListLimit } from './constants.js';
+import { ZERO_ADDR, DEFAULT_LIST_LIMIT, clampListLimit, USDC_ISSUER } from './constants.js';
 
 export class StreamsModule {
   private readonly rpcUrl:     string;
@@ -131,16 +136,17 @@ export class StreamsModule {
       const pk = this.activeWallet.getPublicKey();
       if (typeof pk === 'string') return pk;
     }
-    if (this.config.signer) return this.config.signer.publicKey();
+    const signer = this._signer();
+    if (signer) return signer.publicKey();
     if (this.config.keypair) return this.config.keypair.publicKey();
     return ZERO_ADDR;
   }
 
   /**
    * Resolve the caller address, handling both sync and async getPublicKey().
-   * Unlike _signerPublicKey(), this can be used when the wallet adapter
-   * returns a promise - but it MUST only be called from async contexts.
-   * Results are cached per wallet configuration and invalidated on setWallet().
+   * Safe when the wallet adapter returns a promise — but it MUST only be
+   * called from async contexts. Results are cached per wallet configuration
+   * and invalidated on setWallet().
    */
   private async _resolveCallerAddress(): Promise<string> {
     if (this._cachedCallerAddr !== null) {
@@ -216,11 +222,10 @@ export class StreamsModule {
     if (token === 'native') {
       resolvedToken = Asset.native().contractId(this.passphrase);
     } else if (token === 'USDC') {
-      if (this.passphrase.includes('Test SDF Network')) {
-        resolvedToken = new Asset('USDC', 'GBBD47IF6LWK7P7MDEVSCWTTCJM4TWCHZR4TCEFUB8IQVGIGY4MBKOMZ').contractId(this.passphrase);
-      } else {
-        resolvedToken = new Asset('USDC', 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5REANYOUR').contractId(this.passphrase);
-      }
+      const issuer = this.passphrase.includes('Test SDF Network')
+        ? USDC_ISSUER.testnet
+        : USDC_ISSUER.mainnet;
+      resolvedToken = new Asset('USDC', issuer).contractId(this.passphrase);
     }
 
     // Query token decimals
@@ -536,13 +541,17 @@ export class StreamsModule {
       throw new Error(`Simulation failed: ${simResult.error}`);
     }
 
-    const resourceFee = Number(simResult.minResourceFee);
-    const cpuInstructions = Number(simResult.cost.cpuInsns);
+    // All fees are bigint stroops — consistent with FeeEstimator and the
+    // rest of the SDK — so large resource fees never lose precision to
+    // IEEE-754 rounding (see #447). `estimateRequiredFee` handles the
+    // minResourceFee/fee extraction with the same fallback used elsewhere.
+    const resourceFee = estimateRequiredFee(simResult);
+    const cpuInstructions = BigInt(simResult.cost?.cpuInsns ?? 0);
 
     return {
-      totalFee: Number(BASE_FEE) + resourceFee,
+      totalFee: BigInt(BASE_FEE) + resourceFee,
       resourceFee,
-      baseFee: Number(BASE_FEE),
+      baseFee: BigInt(BASE_FEE),
       instructions: cpuInstructions,
     };
   }
@@ -586,7 +595,10 @@ export class StreamsModule {
 
     let ids: bigint[] = [];
 
-    const pageFromFilteredIds = async (filteredIds: bigint[]): Promise<PaginatedStreams> => {
+    const pageFromFilteredIds = async (
+      filteredIds: bigint[],
+      hasNextPageOverride?: boolean,
+    ): Promise<PaginatedStreams> => {
       ids = filteredIds;
       // Pre-warm the address cache for all IDs in this page concurrently,
       // then fetch stream info in parallel. Without this, each this.get(id)
@@ -595,7 +607,7 @@ export class StreamsModule {
       // single parallel fan-out before the info simulations begin.
       await Promise.all(ids.map(id => this._resolveAddr(id)));
       const streams = await Promise.all(ids.map(id => this.get(id)));
-      const hasNextPage = ids.length === limit;
+      const hasNextPage = hasNextPageOverride ?? ids.length === limit;
       const totalCount = BigInt(offset + ids.length);
       return {
         streams,
@@ -610,15 +622,24 @@ export class StreamsModule {
     // Sender/recipient contract queries already return the filtered page.
     // There is no scoped count method, so do not mix in global stream_count().
     if (sender && recipient) {
-      // When both filters are given, return the union of the sender- and
-      // recipient-filtered pages (de-duplicated) rather than silently
-      // dropping one filter, so callers asking for "streams where I'm
-      // either sender or recipient" get a correct result (see #452).
+      // When both filters are given, merge the sender- and recipient-filtered
+      // streams into one ordered, de-duplicated list *before* paging it,
+      // rather than unioning two independently-paged sub-pages — the union
+      // of two limit-sized pages can be up to 2x the requested page size,
+      // and its length has no honest relationship to hasNextPage/nextCursor
+      // (see #507). There's no merged server-side index, so this re-fetches
+      // everything from offset 0 up through offset+limit on both
+      // sub-indices on every call — cost grows with offset, but the result
+      // is a correct page rather than a fast wrong one.
+      const window = clampListLimit(offset + limit + 1);
       const [senderIds, recipientIds] = await Promise.all([
-        this._factory.streamsBySender(sender, offset, limit),
-        this._factory.streamsByRecipient(recipient, offset, limit),
+        this._factory.streamsBySender(sender, 0, window),
+        this._factory.streamsByRecipient(recipient, 0, window),
       ]);
-      return pageFromFilteredIds([...new Set([...senderIds, ...recipientIds])]);
+      const merged = [...new Set([...senderIds, ...recipientIds])]
+        .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+      const hasNextPage = merged.length > offset + limit;
+      return pageFromFilteredIds(merged.slice(offset, offset + limit), hasNextPage);
     }
     if (sender) {
       return pageFromFilteredIds(await this._factory.streamsBySender(sender, offset, limit));
@@ -639,7 +660,11 @@ export class StreamsModule {
     const address = await this._factory.streamAddress(BigInt(streamId));
     if (!address) throw new Error(`Stream ${streamId} not found`);
     const { subscribeToStream } = await import('./events.js');
-    return subscribeToStream(this.config.rpcUrl!, address, handlers);
+    // Use the resolved `this.rpcUrl` (constructor: `config.rpcUrl ??
+    // DEFAULT_RPC[config.network]`), not the raw optional `config.rpcUrl` —
+    // otherwise a client built without an explicit rpcUrl passes `undefined`
+    // to `createRpcServer`, which throws / never connects.
+    return subscribeToStream(this.rpcUrl, address, handlers);
   }
 
   /** Synchronous subscribe - resolves address lazily on first poll tick. */
@@ -671,7 +696,7 @@ export class StreamsModule {
   // Private helpers
 
   private _ensureCanMutate(): void {
-    if (!this.activeWallet && !this.config.signer && !this.config.keypair) {
+    if (!this.activeWallet && !this._signer() && !this.config.keypair) {
       throw new Error('keypair, wallet adapter, or signer is required for mutating operations');
     }
   }
@@ -680,8 +705,9 @@ export class StreamsModule {
     if (this.activeWallet) {
       return this.activeWallet.getPublicKey();
     }
-    if (this.config.signer) {
-      return this.config.signer.publicKey();
+    const signer = this._signer();
+    if (signer) {
+      return signer.publicKey();
     }
     if (this.config.keypair) {
       return this.config.keypair.publicKey();
@@ -702,12 +728,13 @@ export class StreamsModule {
       }
       return signed;
     }
-    if (this.config.signer) {
-      const result = await this.config.signer.sign(tx);
-      // Signer implementations may return a new signed Transaction (immutable
-      // style) or mutate tx in place and return void. Use the return value when
-      // it is a Transaction instance; fall back to the original tx otherwise.
-      return (result instanceof Transaction) ? result : tx;
+    const signer = this._signer();
+    if (signer) {
+      const result = signer.sign(tx);
+      if (result != null) {
+        await result;
+      }
+      return tx;
     }
     if (this.config.keypair) {
       tx.sign(this.config.keypair);
@@ -809,6 +836,13 @@ function parseStreamInfo(id: bigint, address: string, val: xdr.ScVal): StreamInf
     const k = e.key().sym()?.toString('utf8') ?? e.key().str()?.toString('utf8') ?? '';
     m[k] = e.val();
   }
+  // `paused`, `cancelled` and `clawback_enabled` are NOT fields on the
+  // on-chain `StreamInfo` struct — they are bits packed into `flags: u32`
+  // (see contracts/stream/src/storage.rs). Reading `m['paused']` etc. always
+  // yields `undefined`; derive the booleans by masking `flags`, mirroring
+  // `StreamInfo::is_paused()` / `is_cancelled()` / `is_clawback_enabled()`.
+  const flags = m['flags'] ? scValToU32(m['flags']) : 0;
+
   const info: StreamInfo = {
     id,
     address,
@@ -819,10 +853,10 @@ function parseStreamInfo(id: bigint, address: string, val: xdr.ScVal): StreamInf
     startTime:       m['start_time']      ? Number(scValToU64(m['start_time']))               : 0,
     endTime:         m['end_time']        ? Number(scValToU64(m['end_time']))                 : 0,
     withdrawn:       m['withdrawn']       ? scValToI128(m['withdrawn'])                       : 0n,
-    paused:          m['paused']          != null ? (m['paused'].b() ?? false)          : false,
+    paused:          (flags & STREAM_FLAG_PAUSED) !== 0,
     pausedAt:        m['paused_at']       ? Number(scValToU64(m['paused_at']))                : 0,
-    cancelled:       m['cancelled']       != null ? (m['cancelled'].b() ?? false)       : false,
-    clawbackEnabled: m['clawback_enabled'] != null ? (m['clawback_enabled'].b() ?? false) : false,
+    cancelled:       (flags & STREAM_FLAG_CANCELLED) !== 0,
+    clawbackEnabled: (flags & STREAM_FLAG_CLAWBACK_ENABLED) !== 0,
   };
   (info as StreamInfo & { toJSON(): Record<string, unknown> }).toJSON = () => bigintSafeStringify(info as unknown as Record<string, unknown>);
   return info;

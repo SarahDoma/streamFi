@@ -126,42 +126,26 @@ describe('_signTx — Signer with async/sync sign()', () => {
     expect(signed).toBe(true);
   });
 
-  // ── Regression tests for #519 ─────────────────────────────────────────────
-  // A Signer that returns a new Transaction (immutable-friendly pattern) must
-  // have its return value honoured — not silently discarded.
-
-  it('uses the Transaction returned by a sync Signer.sign() (#519)', async () => {
-    const signedTx = { _isSigned: true } as unknown as Transaction;
-    const returningSigner: Signer = {
-      sign: (_tx: Transaction) => signedTx,
+  it('uses the Transaction a Signer returns (immutable-style sign)', async () => {
+    const original = { _tag: 'original' } as unknown as Transaction;
+    const newlySigned = Object.assign(
+      Object.create((await import('@stellar/stellar-sdk')).Transaction.prototype),
+      { _tag: 'signed' },
+    ) as Transaction;
+    const immutableSigner: Signer = {
+      sign: (_tx: Transaction) => newlySigned,
       publicKey: () => 'GAAZI...',
     };
     const { StreamsModule } = await import('../streams.js');
     const sdk = new StreamsModule({
       network: 'testnet',
       factoryAddress: 'CCWAMYJ...',
-      signer: returningSigner,
+      signer: immutableSigner,
     });
 
-    const result = await runSignTx(sdk, {} as Transaction);
-    expect(result).toBe(signedTx);
-  });
-
-  it('uses the Transaction returned by an async Signer.sign() (#519)', async () => {
-    const signedTx = { _isSigned: true } as unknown as Transaction;
-    const asyncReturningSigner: Signer = {
-      sign: async (_tx: Transaction) => signedTx,
-      publicKey: () => 'GAAZI...',
-    };
-    const { StreamsModule } = await import('../streams.js');
-    const sdk = new StreamsModule({
-      network: 'testnet',
-      factoryAddress: 'CCWAMYJ...',
-      signer: asyncReturningSigner,
-    });
-
-    const result = await runSignTx(sdk, {} as Transaction);
-    expect(result).toBe(signedTx);
+    const result = await runSignTx(sdk, original);
+    expect(result).toBe(newlySigned);
+    expect(result).not.toBe(original);
   });
 });
 

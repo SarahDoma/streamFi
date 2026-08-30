@@ -1,3 +1,5 @@
+import { StrKey } from '@stellar/stellar-sdk';
+
 /**
  * A syntactically valid Stellar G-address with no known keypair. Used only
  * as the transaction source for read-only simulation calls when no real
@@ -6,6 +8,24 @@
  * invocation. Never used to sign or move funds.
  */
 export const ZERO_ADDR = 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF';
+
+/**
+ * Circle's USDC issuer accounts, keyed by network. Used to resolve the
+ * `'USDC'` shorthand in `StreamsModule.create` to a real Stellar asset (see
+ * #508 — the previous mainnet constant was a placeholder strkey that failed
+ * checksum validation and threw on every mainnet `create({ token: 'USDC' })`
+ * call).
+ */
+export const USDC_ISSUER = {
+  testnet: 'GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5',
+  mainnet: 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN',
+} as const;
+
+for (const [network, issuer] of Object.entries(USDC_ISSUER)) {
+  if (!StrKey.isValidEd25519PublicKey(issuer)) {
+    throw new Error(`Invalid USDC issuer strkey configured for ${network}: "${issuer}"`);
+  }
+}
 
 /** Default page size for `FactoryModule` / `StreamsModule.list()` pagination. */
 export const DEFAULT_LIST_LIMIT = 20;
@@ -28,3 +48,16 @@ export function clampListLimit(limit: number): number {
   if (!Number.isFinite(limit)) return DEFAULT_LIST_LIMIT;
   return Math.min(Math.max(Math.trunc(limit), 0), MAX_LIST_LIMIT);
 }
+
+/**
+ * Bit-flags packed into the on-chain `StreamInfo.flags` (`u32`). `paused`,
+ * `cancelled` and `clawback_enabled` are NOT individual struct fields — they
+ * live in these bits.
+ *
+ * Mirrors `FLAG_PAUSED` / `FLAG_CLAWBACK_ENABLED` / `FLAG_CANCELLED` and the
+ * `StreamInfo::is_paused()` / `is_cancelled()` / `is_clawback_enabled()`
+ * getters in `contracts/stream/src/storage.rs`.
+ */
+export const STREAM_FLAG_PAUSED = 1;
+export const STREAM_FLAG_CLAWBACK_ENABLED = 1 << 1;
+export const STREAM_FLAG_CANCELLED = 1 << 2;

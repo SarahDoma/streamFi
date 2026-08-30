@@ -118,12 +118,20 @@ export interface GovernorConfig {
 
 // ── Events ──────────────────────────────────────────────────────────────────
 
-export interface WithdrawEvent  { amount: bigint; recipient: string; totalWithdrawn: bigint; remaining: bigint; }
-export interface CancelEvent    { refundAmount: bigint; withdrawnSoFar: bigint; sender: string; }
-export interface PauseEvent     { pausedAt: number; withdrawable: bigint; sender: string; }
-export interface ResumeEvent    { resumedAt: number; sender: string; }
-export interface TopUpEvent     { amount: bigint; newBalance: bigint; sender: string; }
-export interface ClawbackEvent  { amount: bigint; sender: string; }
+export interface WithdrawEvent  { amount: bigint; recipient: string; totalWithdrawn: bigint; remaining: bigint; sequence: bigint; }
+export interface CancelEvent    { refundAmount: bigint; withdrawnSoFar: bigint; sender: string; sequence: bigint; }
+export interface PauseEvent     { pausedAt: number; withdrawable: bigint; sender: string; sequence: bigint; }
+export interface ResumeEvent    { resumedAt: number; sender: string; sequence: bigint; }
+export interface TopUpEvent     { amount: bigint; newBalance: bigint; sender: string; sequence: bigint; }
+export interface ClawbackEvent  { amount: bigint; sender: string; sequence: bigint; }
+
+/** A gap detected in the per-contract event sequence — see `DataKey::EventSequence` in contracts/stream/src/events.rs. */
+export interface EventGap {
+  /** The sequence number that should have come next. */
+  expected: bigint;
+  /** The sequence number actually observed. */
+  actual: bigint;
+}
 
 export interface StreamEventHandlers {
   onWithdraw?: (e: WithdrawEvent)  => void;
@@ -134,8 +142,22 @@ export interface StreamEventHandlers {
   onClawback?: (e: ClawbackEvent)  => void;
   /** Called when an event polling request fails. Polling continues afterward. */
   onError?:    (error: Error)      => void;
+  /** Called when a non-contiguous event sequence is observed (missed events across a poll gap or reconnect). */
+  onGap?:      (gap: EventGap)     => void;
   /** Polling interval in ms; default 5000 */
   pollInterval?: number;
+  /**
+   * Upper bound (ms) on the exponential backoff applied after consecutive
+   * polling failures. Default 60000. The delay is
+   * `min(pollInterval * 2^(failures - 1), maxBackoffMs)`.
+   */
+  maxBackoffMs?: number;
+  /**
+   * Number of consecutive polling failures after which the subscription
+   * stops polling entirely (a final `onError` is delivered first). Default 10.
+   * Set to 0 to poll forever regardless of failures.
+   */
+  maxConsecutiveFailures?: number;
 }
 
 export interface Subscription {
@@ -199,12 +221,12 @@ export type StreamOperation =
     };
 
 export interface FeeEstimate {
-  /** Total estimated fee in stroops */
-  totalFee: number;
-  /** Resource fee component (CPU/RAM) in stroops */
-  resourceFee: number;
-  /** Base (inclusion) fee component in stroops */
-  baseFee: number;
-  /** Estimated CPU instructions */
-  instructions: number;
+  /** Total estimated fee in stroops (bigint, per the SDK's stroops convention). */
+  totalFee: bigint;
+  /** Resource fee component (CPU/RAM) in stroops (bigint). */
+  resourceFee: bigint;
+  /** Base (inclusion) fee component in stroops (bigint). */
+  baseFee: bigint;
+  /** Estimated CPU instructions (bigint, avoids IEEE-754 precision loss on large counts). */
+  instructions: bigint;
 }

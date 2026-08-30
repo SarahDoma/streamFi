@@ -5,6 +5,7 @@ import {
   calculateRate,
   calculateYield,
   streamProgress,
+  normalizeProgress,
   withdrawableLocal,
   bigintSafeStringify,
   isValidAddress,
@@ -198,6 +199,23 @@ describe('streamProgress', () => {
   });
 });
 
+// ── normalizeProgress ────────────────────────────────────────────────────────
+// Module36 and Module48 both need streamProgress()'s NaN (open-ended, already
+// started) result turned into a defined midpoint. This must be one shared
+// helper (see #482), not two independent reimplementations that can drift.
+
+describe('normalizeProgress', () => {
+  it('maps NaN to the midpoint 0.5', () => {
+    expect(normalizeProgress(Number.NaN)).toBe(0.5);
+  });
+
+  it('passes finite values through unchanged', () => {
+    expect(normalizeProgress(0)).toBe(0);
+    expect(normalizeProgress(1)).toBe(1);
+    expect(normalizeProgress(0.25)).toBe(0.25);
+  });
+});
+
 // ── withdrawableLocal ────────────────────────────────────────────────────────
 
 describe('withdrawableLocal', () => {
@@ -254,44 +272,32 @@ describe('withdrawableLocal', () => {
     expect(withdrawableLocal(s, now)).toBe(rate * 1000n - 50_000n);
   });
 
-  // ── Regression for #521 ───────────────────────────────────────────────────
-  // A stream paused *after* end_time has fully streamed; the pause freeze
-  // must not under-report by reverting to pausedAt < endTime. The correct
-  // effectiveNow is endTime, not pausedAt.
-  it('returns full streamed amount when paused past endTime (#521)', () => {
-    const now      = Math.floor(Date.now() / 1000);
-    const rate     = 100n;
-    const start    = now - 3000;
-    const end      = now - 1000; // ended 1000 s ago
-    const pausedAt = now - 500;  // paused 500 s after end (i.e. pausedAt > endTime)
+  it('a stream paused *after* end_time has fully streamed (matches on-chain clamp order)', () => {
+    const now  = Math.floor(Date.now() / 1000);
+    const rate = 100n;
+    // start .. end (1000s of streaming) .. then paused, then now
     const s = makeStream({
       ratePerSecond: rate,
-      startTime:     start,
-      endTime:       end,
+      startTime:     now - 3000,
+      endTime:       now - 2000,
       paused:        true,
-      pausedAt,
+      pausedAt:      now - 500, // pause began well after the stream ended
     });
-    // On-chain: endTime clamp wins → streamed = rate × (end − start) = 100 × 2000
-    // Old (buggy) code: pause wins → streamed = rate × (pausedAt − start) = 100 × 2500 (wrong)
-    expect(withdrawableLocal(s, now)).toBe(rate * 2000n);
+    // end_time wins: rate × (endTime − startTime) = 100 × 1000
+    expect(withdrawableLocal(s, now)).toBe(rate * 1000n);
   });
 
-  it('freezes at pausedAt when paused before endTime (#521)', () => {
-    const now      = Math.floor(Date.now() / 1000);
-    const rate     = 100n;
-    const start    = now - 2000;
-    const end      = now + 1000; // not yet ended
-    const pausedAt = now - 500;  // paused before endTime — pause should still freeze clock
+  it('a pause that began before end_time still freezes accrual', () => {
+    const now  = Math.floor(Date.now() / 1000);
+    const rate = 100n;
     const s = makeStream({
       ratePerSecond: rate,
-      startTime:     start,
-      endTime:       end,
+      startTime:     now - 1000,
+      endTime:       now + 1000,
       paused:        true,
-      pausedAt,
+      pausedAt:      now - 400, // pause began while still running
     });
-    // pausedAt < clampedNow (= nowSec, since nowSec < endTime) → freeze at pausedAt
-    // streamed = rate × (pausedAt − start) = 100 × 1500
-    expect(withdrawableLocal(s, now)).toBe(rate * 1500n);
+    expect(withdrawableLocal(s, now)).toBe(rate * 600n);
   });
 });
 

@@ -203,11 +203,21 @@ const sub = client.streams.subscribe(streamId, {
   onResume:    e => console.log('Resumed at:', e.resumedAt),
   onTopUp:     e => console.log('Topped up:', e.amount),
   onClawback:  e => console.log('Clawback:', e.amount),
-  pollInterval: 3000,  // ms; default 5000
+  onError:     err => console.warn('poll failed:', err),
+  pollInterval: 3000,          // ms; default 5000
+  maxBackoffMs: 60_000,        // cap on exponential backoff after failures; default 60_000
+  maxConsecutiveFailures: 10,  // stop polling after this many failures in a row; default 10 (0 = never)
 });
 
 sub.unsubscribe();
 ```
+
+> The first poll seeds its start ledger from `getLatestLedger()` (Soroban RPC's
+> `getEvents` requires one); a failed seed is retried on the next poll. After a
+> polling failure the retry delay grows exponentially
+> (`pollInterval · 2^(failures−1)`, capped at `maxBackoffMs`); a successful poll
+> resets it. Once `maxConsecutiveFailures` failures occur in a row the
+> subscription stops (a final `onError` is delivered first).
 
 > **All event payload fields are decoded.** `src/events.ts`'s `dispatchEvent()` parses every
 > multi-field event from its tuple `ScVal`s: `onWithdraw` → `{ recipient, amount,
@@ -552,7 +562,12 @@ A helper class to build stream configurations with method chaining.
 * `recipient(address: string): this` - Sets the recipient address.
 * `amount(val: number): this` - Sets the deposit amount in the smallest unit (stroops).
 * `ratePerSecond(val: number | bigint): this` - Sets the stream rate in stroops per second, as an alternative to `amount()`-only streams. Accepts a `number` or `bigint`; `bigint` values are serialised to strings before network submission to avoid Safari/WebKit `JSON.stringify` quirks.
-* `build(): StreamConfig` - Validates and returns the built stream configuration. Throws if any required field is missing. Includes `ratePerSecond` in the result when it was set.
+* `startTime(val: number): this` - Sets the stream's start time (Unix timestamp, seconds). Optional; `toContractArgs()`/`toBatchOperation()` default to "now" when omitted. Throws if `val` is in the past.
+* `endTime(val: number): this` - Sets the stream's end time (Unix timestamp, seconds). Optional; `toContractArgs()`/`toBatchOperation()` default to `0` (open-ended) when omitted.
+* `clawbackEnabled(val: boolean): this` - Sets whether the sender may claw back unstreamed tokens. Optional; defaults to `false`.
+* `build(): StreamConfig` - Validates and returns the built stream configuration. Throws if any required field is missing. Includes `ratePerSecond`/`startTime`/`endTime`/`clawbackEnabled` in the result when set.
+* `toContractArgs(): unknown[]` - Produces the exact 8 positional arguments the real `DripFactory.create_stream` contract call expects — `(sender, recipient, token, deposit_amount: i128, rate_per_sec: i128, start_time: u64, end_time: u64, clawback_enabled: bool)`. Throws everything `build()` throws, plus a dedicated error if `ratePerSecond` was never set (the contract has no way to derive a rate on its own).
+* `toBatchOperation(method?: string): BatchOperation` - Wraps `toContractArgs()` in a `BatchOperation` (`{ method: 'create_stream', params: {}, args }`) ready to pass to `ConduitBatcher.executeAsync()`. This is the supported way to take a `StreamBuilder` all the way to a real, submittable `create_stream` transaction — see the note under `ConduitBatcher` below.
 * `submit(submitFn, options?): Promise<unknown>` - Builds the payload and submits it through `submitFn` with automatic retries (exponential backoff), concurrency control via an internal semaphore, a pending queue with backpressure, and `AbortSignal` support. Throws if the builder was destroyed or the queue is full.
 
   Options (`SubmitOptions`):
@@ -593,9 +608,11 @@ const result = await new StreamBuilder()
 
 A utility class to bundle multiple stream operations with mandatory client-side validation. `execute`/`executeAsync` are **instance methods** — instantiate with `new ConduitBatcher()` first (see [`examples/fluent-builder.ts`](../examples/fluent-builder.ts)).
 
+> **Building real `create_stream` calls:** `execute()` takes plain `Record<string, unknown>[]` and, with no `args`, encodes each item as a single sorted map keyed by whatever properties it happens to have — it has no knowledge of any contract's ABI. Passing raw `StreamBuilder.build()` output to it therefore does **not** produce a valid `create_stream` invocation (wrong key casing, `amount` encoded as `i64` instead of `i128`, and no `start_time`/`end_time`/`clawback_enabled` at all). To actually invoke `create_stream`, build a `BatchOperation` with `StreamBuilder.toBatchOperation()` (which supplies the correct positional, ABI-typed `args`) and pass it to `executeAsync()`.
+
 #### Methods
 
-* `execute(streams: Record<string, unknown>[], options?: BatchExecuteOptions): BatchResult` - Validates and bundles the list of stream configurations into a single transaction. Returns `{ success: false, errors: [...] }` if validation fails instead of throwing.
+* `execute(streams: Record<string, unknown>[], options?: BatchExecuteOptions): BatchResult` - Validates and bundles the list of stream configurations into a single transaction. Returns `{ success: false, errors: [...] }` if validation fails instead of throwing. Each item becomes an ABI-agnostic sorted-map argument unless you build `BatchOperation`s with explicit `args` (see `toBatchOperation()` above) and go through `executeAsync()` instead.
 
 **Validation Rules:**
 - Payload must be a non-null, non-empty array
@@ -603,16 +620,25 @@ A utility class to bundle multiple stream operations with mandatory client-side 
 - Invalid payloads are rejected at the client before submission
 
 ```typescript
-import { ConduitBatcher } from '@conduit-protocol/sdk';
+import { StreamBuilder, ConduitBatcher } from '@conduit-protocol/sdk';
 
-const result = new ConduitBatcher().execute([stream1, stream2]);
+// Real create_stream invocation: build ABI-exact args, then executeAsync().
+const operation = new StreamBuilder()
+  .token('USDC')
+  .sender('GD...')
+  .recipient('GB...')
+  .amount(1000)
+  .ratePerSecond(10n)
+  .toBatchOperation();
+
+const result = await new ConduitBatcher().executeAsync([operation], { context });
 if (!result.success) {
   console.error('Validation errors:', result.errors);
   return;
 }
 ```
 
-* `executeAsync(operations: BatchOperation[], signalOrOptions?: AbortSignal | BatchExecuteAsyncOptions): Promise<BatchResult>` - Asynchronously execute a batch with abort signal / options support.
+* `executeAsync(operations: BatchOperation[], signalOrOptions?: AbortSignal | BatchExecuteAsyncOptions): Promise<BatchResult>` - Asynchronously execute a batch with abort signal / options support. `BatchOperation.args`, when present, is used verbatim as the contract's positional arguments (see `StreamBuilder.toBatchOperation()`).
 
 **Throws:** `Error` if batcher is destroyed.
 
@@ -629,11 +655,12 @@ still consumed sequentially even though simulation itself is not.
 
 ---
 
-## `NonceManager` (internal — `src/nonce/NonceManager.ts`)
+## `NonceManager` (`src/nonce/NonceManager.ts`)
 
-Not currently part of the package's public exports (`src/index.ts`) or the rollup-built `dist/cjs`
-bundle (only reachable from the entry point graph); documented here for maintainers and for
-consumers building against SDK source directly.
+Exported from the package entry point (`src/index.ts`) alongside its `NonceLock` and
+`NonceManagerOptions` types. This is the bigint-based implementation; the earlier
+`number`-based `src/nonce-manager.ts` duplicate (which could not represent Stellar
+int64 sequence numbers above 2^53) has been removed.
 
 ```typescript
 const nonces = new NonceManager({ startNonce: 0n, maxNonce: 1_000_000n });

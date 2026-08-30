@@ -98,22 +98,30 @@ export function streamProgress(stream: StreamInfo, nowSec = Math.floor(Date.now(
 }
 
 /**
+ * Normalizes a `streamProgress()` result for display / comparison purposes,
+ * mapping the NaN case (an open-ended stream that has already started) to the
+ * midpoint 0.5. Shared by Module36 and Module48 so their progress deltas agree
+ * at the edges instead of drifting via independent reimplementations.
+ */
+export function normalizeProgress(value: number): number {
+  return Number.isNaN(value) ? 0.5 : value;
+}
+
+/**
  * Current withdrawable balance from a StreamInfo snapshot, without a contract call.
  * Accounts for pause state.
  */
 export function withdrawableLocal(stream: StreamInfo, nowSec = Math.floor(Date.now() / 1000)): bigint {
   if (stream.cancelled) return 0n;
 
-  // Mirror the on-chain streamed_amount ordering: clamp to endTime first
-  // (unconditional once the stream has ended), then freeze at pausedAt.
-  // A stream paused after end_time has already fully streamed; the pause
-  // only matters while the stream is still running (nowSec <= endTime).
-  const clampedNow = stream.endTime > 0 && nowSec > stream.endTime
-    ? stream.endTime
-    : nowSec;
-  const effectiveNow = stream.paused && stream.pausedAt < clampedNow
-    ? stream.pausedAt
-    : clampedNow;
+  // Mirror the on-chain `math::streamed_amount` clamp order
+  // (contracts/stream/src/math.rs): clamp to `endTime` first — a stream that
+  // has ended has fully streamed regardless of pause state — then, only while
+  // the stream is still running, freeze accrual at `pausedAt`.
+  const endClamped =
+    stream.endTime > 0 && nowSec > stream.endTime ? stream.endTime : nowSec;
+  const effectiveNow =
+    stream.paused && stream.pausedAt < endClamped ? stream.pausedAt : endClamped;
 
   if (effectiveNow < stream.startTime) return 0n;
 

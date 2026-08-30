@@ -34,6 +34,7 @@ export {
   RateLimitError,
   RpcServiceUnavailableError,
   SUPPORTED_NETWORKS,
+  CAIP2_TO_NETWORK,
   UNKNOWN_CONTRACT_ERROR_CODE,
 } from './errors.js';
 export type { ConduitContract } from './errors.js';
@@ -44,6 +45,8 @@ export type { FeeEstimateOptions } from './fee-estimator.js';
 export { WebSocketRelayer } from './relayer/WebSocketRelayer.js';
 export { ErrorMapper } from './relayer/ErrorMapper.js';
 export type { MappedErrorHandler } from './relayer/ErrorMapper.js';
+export { NonceManager } from './nonce/NonceManager.js';
+export type { NonceLock, NonceManagerOptions } from './nonce/NonceManager.js';
 
 // Utils are exported via the /utils subpath export, but also available here
 export {
@@ -52,6 +55,7 @@ export {
   calculateRate,
   calculateYield,
   streamProgress,
+  normalizeProgress,
   withdrawableLocal,
   bigintSafeStringify,
 } from './utils.js';
