@@ -350,9 +350,23 @@ export function scValToU32(val: xdr.ScVal): number {
   return val.u32();
 }
 
-/** Encode a u64 value as ScVal */
+/**
+ * Encode a u64 value as ScVal.
+ *
+ * Rejects a non-integer `number` (`2.5`) or a negative value with a clear
+ * `RangeError` naming the argument, rather than letting `Uint64.fromString`
+ * throw an opaque XDR error — or, worse, wrap a garbage value — deep inside
+ * stellar-sdk (#577).
+ */
 export function u64ToScVal(val: bigint | number): xdr.ScVal {
-  return xdr.ScVal.scvU64(xdr.Uint64.fromString(val.toString()));
+  if (typeof val === 'number' && !Number.isInteger(val)) {
+    throw new RangeError(`u64ToScVal: expected an integer, got ${val}`);
+  }
+  const asBigInt = typeof val === 'bigint' ? val : BigInt(val);
+  if (asBigInt < 0n) {
+    throw new RangeError(`u64ToScVal: expected a non-negative value, got ${val}`);
+  }
+  return xdr.ScVal.scvU64(xdr.Uint64.fromString(asBigInt.toString()));
 }
 
 /** Encode a boolean as ScVal */
