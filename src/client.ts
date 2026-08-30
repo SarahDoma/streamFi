@@ -4,7 +4,7 @@ import { DEFAULT_RPC }               from './soroban.js';
 import { StreamsModule }             from './streams.js';
 import { FactoryModule }             from './factory.js';
 import { GovernorModule }            from './governor.js';
-import { SUPPORTED_NETWORKS, CAIP2_TO_NETWORK, UnsupportedChainError } from './errors.js';
+import { SUPPORTED_NETWORKS, UnsupportedChainError, CAIP2_TO_NETWORK } from './errors.js';
 
 /**
  * Validate that `wallet`'s network/chain matches the SDK's configured

@@ -127,6 +127,21 @@ export class StreamsModule {
     this._cachedCallerAddr = null;
   }
 
+  private _signer(): Signer | null {
+    return this.config.signer ?? null;
+  }
+
+  private _signerPublicKey(): string {
+    if (this.activeWallet) {
+      const pk = this.activeWallet.getPublicKey();
+      if (typeof pk === 'string') return pk;
+    }
+    const signer = this._signer();
+    if (signer) return signer.publicKey();
+    if (this.config.keypair) return this.config.keypair.publicKey();
+    return ZERO_ADDR;
+  }
+
   /**
    * Resolve the caller address, handling both sync and async getPublicKey().
    * Safe when the wallet adapter returns a promise — but it MUST only be
@@ -526,17 +541,17 @@ export class StreamsModule {
       throw new Error(`Simulation failed: ${simResult.error}`);
     }
 
-    // bigint stroops throughout — matches FeeEstimator's convention and stays
-    // exact for resource fees beyond Number.MAX_SAFE_INTEGER. `estimateRequiredFee`
-    // is the same extraction (with fallback) that `create()` uses.
+    // All fees are bigint stroops — consistent with FeeEstimator and the
+    // rest of the SDK — so large resource fees never lose precision to
+    // IEEE-754 rounding (see #447). `estimateRequiredFee` handles the
+    // minResourceFee/fee extraction with the same fallback used elsewhere.
     const resourceFee = estimateRequiredFee(simResult);
-    const baseFee = BigInt(BASE_FEE);
-    const cpuInstructions = BigInt(simResult.cost.cpuInsns);
+    const cpuInstructions = BigInt(simResult.cost?.cpuInsns ?? 0);
 
     return {
-      totalFee: baseFee + resourceFee,
+      totalFee: BigInt(BASE_FEE) + resourceFee,
       resourceFee,
-      baseFee,
+      baseFee: BigInt(BASE_FEE),
       instructions: cpuInstructions,
     };
   }
@@ -681,7 +696,7 @@ export class StreamsModule {
   // Private helpers
 
   private _ensureCanMutate(): void {
-    if (!this.activeWallet && !this.config.signer && !this.config.keypair) {
+    if (!this.activeWallet && !this._signer() && !this.config.keypair) {
       throw new Error('keypair, wallet adapter, or signer is required for mutating operations');
     }
   }
@@ -690,8 +705,9 @@ export class StreamsModule {
     if (this.activeWallet) {
       return this.activeWallet.getPublicKey();
     }
-    if (this.config.signer) {
-      return this.config.signer.publicKey();
+    const signer = this._signer();
+    if (signer) {
+      return signer.publicKey();
     }
     if (this.config.keypair) {
       return this.config.keypair.publicKey();
@@ -712,13 +728,13 @@ export class StreamsModule {
       }
       return signed;
     }
-    if (this.config.signer) {
-      // A Signer may mutate `tx` in place and return void, or return a new
-      // signed Transaction. Honour the return value when it is a Transaction;
-      // returning `tx` unconditionally (as before) dropped the signature for
-      // immutable-style signers, submitting an unsigned transaction.
-      const result = await this.config.signer.sign(tx);
-      return result instanceof Transaction ? result : tx;
+    const signer = this._signer();
+    if (signer) {
+      const result = signer.sign(tx);
+      if (result != null) {
+        await result;
+      }
+      return tx;
     }
     if (this.config.keypair) {
       tx.sign(this.config.keypair);

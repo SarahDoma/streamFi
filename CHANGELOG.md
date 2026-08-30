@@ -22,10 +22,18 @@ All notable changes are documented here. Format based on [Keep a Changelog](http
 - `FactoryModule.streamAddress()` now caches resolved stream→contract-address lookups in-memory, since the mapping is fixed at stream creation and never changes. Eliminates redundant RPC round trips on every `StreamsModule` read/write operation (`get`, `withdraw`, `cancel`, `pause`, `resume`, `topUp`, `clawback`) and on each page of `list()`, which previously re-resolved the same address for every stream on every call.
 - `buildBatchTransactions()` (the RPC-prepared batch path) now simulates all operations in a batch concurrently instead of one at a time, cutting the wall-clock time of an N-operation batch from N sequential RPC round trips to one.
 
+### Changed
+- `StreamsModule` now routes all signer-selection logic through its private `_signer()` helper instead of touching `config.signer` directly, removing dead code (#446).
+- CAIP-2→network mapping consolidated into a single exported `CAIP2_TO_NETWORK` constant shared by `ConduitClient`'s wallet network check and `WalletConnectAdapter`'s chain validation, so the two can never disagree (#445).
+
 ### Removed
 - Removed orphaned `RoomManager` (`src/room-manager.js`) and `src/server.js` WebSocket server, along with unused `dotenv` production dependency (#442).
 - Removed unused `GraphSyncAgent` (`src/graph-sync-agent.ts`) dead code (#443).
+
+- Removed the superseded `src/nonce-manager.ts` `NonceManager` (and its test) — it was an earlier, unmaintained number-based implementation shadowed by the bigint-based `src/nonce/NonceManager.ts` (#444).
+
 - Removed dead `Module46` string-normalization wrapper (`src/module46.ts`) — never exported from `src/index.ts` and unreferenced elsewhere (#478).
+
 
 ### Documentation
 - Removed non-existent `contracts/*-abi.ts` entry from `docs/architecture.md` module map (#440).
@@ -38,9 +46,9 @@ All notable changes are documented here. Format based on [Keep a Changelog](http
 - Documented `StreamBuilder.startTime()`/`endTime()`/`clawbackEnabled()`/`toContractArgs()`/`toBatchOperation()` in `docs/api.md`, and added a note under `ConduitBatcher` clarifying that `execute()` alone cannot build a real `create_stream` invocation (#435).
 
 ### Fixed
-- **Breaking:** `StreamsModule.estimateFee()`'s `FeeEstimate` fields (`totalFee`, `resourceFee`, `baseFee`, `instructions`) are now `bigint` stroops, not `number` — matching `FeeEstimator`'s convention and staying exact for resource fees beyond `Number.MAX_SAFE_INTEGER`. The resource fee is extracted via `estimateRequiredFee()` (same fallback as `create()`) (#447)
-- **Event subscriptions never delivered a single event** — `subscribeToStream()`'s first poll called Soroban RPC's `getEvents` with no `startLedger` (required), the rejection was swallowed, and `startLedger` was never seeded, so the loop retried the same broken request forever. The first poll now seeds `startLedger` from `getLatestLedger()`, retrying the seed on a later poll if it fails (#484)
-- Event polling errors were swallowed and retried at a fixed interval forever, with no bound against a permanently-broken RPC endpoint. Consecutive failures now back off exponentially and, after `maxConsecutiveFailures` in a row, stop the subscription (#485)
+
+- `StreamsModule.estimateFee()` now returns `FeeEstimate` fees as bigint stroops — consistent with `FeeEstimator` and the rest of the SDK — eliminating IEEE-754 precision loss on large resource fees (#447)
+
 - `Module26`, `Module36`, `Module48`, and `Module49` now share a single `LruMemoCache` helper (`src/lru-memo-cache.ts`) for eviction (and, for the first three, hit/miss speedup measurement) instead of each re-implementing the same LRU-memoizer logic (#479).
 - `Module26.aggregatePortfolio()` now fingerprints the portfolio with two incremental hashes (FNV-1a + djb2) instead of building a full `items.map(...).join('|')` string on every call, including cache hits — for a large portfolio that string could run to many KB and dominated the "cached" path, so `measuredSpeedupPercent` mostly measured string building rather than the aggregation it memoizes. Two independent hashes are combined into the key rather than one, since a single 32-bit hash would make wrong-portfolio cache collisions realistic at long-running-instance scale (#480).
 - `Module48.processSingleItem()` now updates `totalProcessed` and the execution-time accumulator on every call, so `getPerformanceMetrics().averageExecutionTimeMs` is accurate whether streams are processed via `processStreamBatch()` or by calling `processSingleItem()` directly; previously only `processStreamBatch()` touched `totalProcessed`, so direct `processSingleItem()` calls always reported `averageExecutionTimeMs: 0` (#481).
@@ -48,6 +56,7 @@ All notable changes are documented here. Format based on [Keep a Changelog](http
 - `catchNetworkError()` no longer reclassifies *any* `TypeError` whose text happens to contain `fetch`/`connect`/`network`/etc. It now only reclassifies errors that are provably transport failures: the canonical fetch/axios network messages (`fetch failed`, `Failed to fetch`, `Network Error`, `Load failed`) or an error (or its nested `cause`) carrying a network errno code such as `ECONNREFUSED`/`ENOTFOUND`/`ERR_NETWORK`. A programming `TypeError` (e.g. `Cannot read properties of undefined (reading 'connect')`) is re-thrown as-is instead of being masked as a network outage (#457).
 - `NonceManager` now throws a descriptive error for an unparseable nonce string (e.g. `startNonce: 'not-a-number'`) instead of silently coercing it to `0n`, which masked caller bugs as an explicit zero (#458).
 - `StreamBuilder.build()` now stringifies a numeric `ratePerSecond` so the runtime value matches the declared `ratePerSecond?: string` return type; previously a `number` input passed through unchanged, so callers trusting the type (`.trim()`, string concatenation) hit runtime errors (#459).
+
 - `StreamsModule.withdraw()` / `topUp()` now reject `amount <= 0n` client-side (before any RPC round-trip), matching `create()`'s fail-fast validation philosophy instead of relying on the contract's `InvalidAmount` simulate+reject cycle (#451)
 - `StreamsModule.list()` no longer silently drops `recipient` when both `sender` and `recipient` are provided — it now returns the de-duplicated union of both filters (#452)
 - **Critical:** `FeeEstimator.estimateFee()` now uses `bigint` stroops instead of floating-point for fee representation, eliminating IEEE-754 precision loss. All monetary amounts in the SDK now consistently use bigint to avoid rounding errors.
