@@ -637,11 +637,20 @@ export function formatAddress(address: unknown, visible = 6): string {
   return `${value.slice(0, head)}…${value.slice(-4)}`;
 }
 
-/** Stroops → decimal string. Falls back to `'0'` on unparseable input. */
+/**
+ * Stroops → decimal string. Falls back to `'0'` on unparseable input.
+ *
+ * `raw` must be a strict integer string (`/^-?\d+$/`) — fractional values
+ * (`"1.5"`), grouped values (`"1,000"`), or any other non-digit characters
+ * are rejected rather than stripped, since silently discarding a `.` or `,`
+ * would mis-scale the amount instead of failing loudly.
+ */
 export function formatAmount(amount: unknown, decimals = 7): string {
   const raw = asString(amount, '0').trim();
+  if (!/^-?\d+$/.test(raw)) return '0';
+
   const negative = raw.startsWith('-');
-  const digits = (negative ? raw.slice(1) : raw).replace(/[^0-9]/g, '');
+  const digits = negative ? raw.slice(1) : raw;
   if (digits === '') return '0';
 
   const places = Math.max(0, Math.trunc(decimals));
