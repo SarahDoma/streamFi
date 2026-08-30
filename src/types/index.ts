@@ -125,6 +125,58 @@ export interface ResumeEvent    { resumedAt: number; sender: string; sequence: b
 export interface TopUpEvent     { amount: bigint; newBalance: bigint; sender: string; sequence: bigint; }
 export interface ClawbackEvent  { amount: bigint; sender: string; sequence: bigint; }
 
+/** Published once when the factory deploys a new DripStream (`created` topic). */
+export interface CreatedEvent {
+  /** The stream's sender (topics[1] actor). */
+  sender: string;
+  recipient: string;
+  token: string;
+  depositAmount: bigint;
+  ratePerSecond: bigint;
+  startTime: number;
+  endTime: number;
+  sequence: bigint;
+}
+
+/**
+ * Published when the recipient force-cancels a paused stream after the
+ * pause threshold has elapsed (`force_cxl` topic). Settles atomically like
+ * `cancelled`, but is recipient-initiated rather than sender-initiated.
+ */
+export interface ForceCancelEvent {
+  /** The recipient who force-cancelled (topics[1] actor). */
+  recipient: string;
+  /** Earned-but-unwithdrawn amount paid out to the recipient. */
+  payoutAmount: bigint;
+  /** Unstreamed remainder refunded to the sender. */
+  refundAmount: bigint;
+  sequence: bigint;
+}
+
+/** Published when the recipient role is transferred to a new address (`xfer_rec` topic). */
+export interface RecipientTransferEvent {
+  /** The outgoing recipient who initiated the transfer (topics[1] actor). */
+  previousRecipient: string;
+  newRecipient: string;
+  sequence: bigint;
+}
+
+/** Published when an operator is delegated on the stream (`set_op` topic). */
+export interface OperatorSetEvent {
+  /** The address that granted the operator role (topics[1] actor). */
+  sender: string;
+  operator: string;
+  sequence: bigint;
+}
+
+/** Published when a previously-delegated operator is revoked (`rm_op` topic). */
+export interface OperatorRevokedEvent {
+  /** The address that revoked the operator role (topics[1] actor). */
+  sender: string;
+  operator: string;
+  sequence: bigint;
+}
+
 /** A gap detected in the per-contract event sequence — see `DataKey::EventSequence` in contracts/stream/src/events.rs. */
 export interface EventGap {
   /** The sequence number that should have come next. */
@@ -140,6 +192,16 @@ export interface StreamEventHandlers {
   onResume?:   (e: ResumeEvent)    => void;
   onTopUp?:    (e: TopUpEvent)     => void;
   onClawback?: (e: ClawbackEvent)  => void;
+  /** Called when the factory deploys a new stream. Optional — most subscribers attach after a stream already exists. */
+  onCreated?:            (e: CreatedEvent)             => void;
+  /** Called when the recipient force-cancels a paused stream. */
+  onForceCancel?:        (e: ForceCancelEvent)         => void;
+  /** Called when the recipient role is transferred to a new address — the current subscriber may have just lost the stream. */
+  onRecipientTransfer?:  (e: RecipientTransferEvent)   => void;
+  /** Called when an operator is delegated on the stream. */
+  onOperatorSet?:        (e: OperatorSetEvent)         => void;
+  /** Called when a delegated operator is revoked. */
+  onOperatorRevoke?:     (e: OperatorRevokedEvent)     => void;
   /** Called when an event polling request fails. Polling continues afterward. */
   onError?:    (error: Error)      => void;
   /** Called when a non-contiguous event sequence is observed (missed events across a poll gap or reconnect). */
