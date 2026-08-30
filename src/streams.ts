@@ -337,35 +337,45 @@ export class StreamsModule {
   }
 
   /**
-   * Withdraw from multiple streams concurrently.
+   * Withdraw from multiple streams.
    *
    * Note: Soroban currently permits only one invoke_host_function
    * operation per transaction, so this cannot be assembled into a single
    * atomic transaction the way classic Stellar payment operations can.
-   * Each withdrawal is submitted as its own transaction; they run
-   * concurrently and are reported independently so a failure on one
-   * streamId (e.g. StreamNotFound, insufficient balance) does not block
-   * or roll back the others.
+   * Each withdrawal is submitted as its own transaction; they are reported
+   * independently so a failure on one streamId (e.g. StreamNotFound,
+   * insufficient balance) does not block or fail the others.
+   *
+   * Withdrawals are submitted one at a time, not concurrently. Each
+   * withdraw() -> _invoke() -> buildContractCallTx() reads the caller
+   * account's current sequence number via getAccount() and builds a
+   * transaction on top of it. Firing all N withdrawals at once means every
+   * one of them reads the same sequence number and builds a transaction
+   * with the same value, so with a single keypair/wallet at most one
+   * submission can ever land — the rest fail with txBAD_SEQ (see #504).
+   * Awaiting each withdrawal (submit + confirm) before starting the next
+   * guarantees getAccount() only observes the sequence after the previous
+   * transaction has landed, so every submission gets a distinct, ordered
+   * sequence number.
    */
   async batchWithdraw(withdrawals: BatchWithdrawItem[]): Promise<BatchWithdrawResult[]> {
     this._ensureCanMutate();
 
-    const settled = await Promise.allSettled(
-      withdrawals.map(w => this.withdraw(w.streamId, w.amount)),
-    );
-
-    return settled.map((result, i) => {
-      const streamId = BigInt(withdrawals[i]!.streamId);
-      if (result.status === 'fulfilled') {
-        return { streamId, success: true, txHash: result.value };
+    const results: BatchWithdrawResult[] = [];
+    for (const w of withdrawals) {
+      const streamId = BigInt(w.streamId);
+      try {
+        const txHash = await this.withdraw(w.streamId, w.amount);
+        results.push({ streamId, success: true, txHash });
+      } catch (err) {
+        results.push({
+          streamId,
+          success: false,
+          error: err instanceof Error ? err.message : String(err),
+        });
       }
-      const err = result.reason;
-      return {
-        streamId,
-        success: false,
-        error: err instanceof Error ? err.message : String(err),
-      };
-    });
+    }
+    return results;
   }
 
   /** Cancel the stream (sender only). Settles all balances atomically. */
