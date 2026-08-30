@@ -18,6 +18,7 @@ import type {
   FeeEstimate,
 } from './types/index.js';
 import type { WalletAdapter } from './adapters/types.js';
+import type { Signer } from './signer.js';
 import { KeypairWalletAdapter } from './adapters/keypair.js';
 import { toStroops, calculateRate, bigintSafeStringify } from './utils.js';
 import {
@@ -35,6 +36,7 @@ import {
   DEFAULT_CONFIRMATION_MAX_ATTEMPTS,
   DEFAULT_CONFIRMATION_POLL_INTERVAL_MS,
   createRpcServer,
+  resolveFee,
 } from './soroban.js';
 import {
   STREAM_FLAG_PAUSED,
@@ -83,6 +85,12 @@ export class StreamsModule {
   private activeWallet?:       WalletAdapter;
 
   /**
+   * Inclusion (bid) fee, in stroops, for transactions this module submits.
+   * Resolved once from `config.fee` / `config.feeMultiplier` (see #509).
+   */
+  private readonly _fee: string;
+
+  /**
    * Session-scoped cache of stream ID → contract address resolutions.
    * Avoids a redundant factory RPC on every get/withdraw/cancel/pause/resume/topUp/clawback call
    * for the same stream within a single StreamsModule lifetime. The cache is
@@ -110,6 +118,7 @@ export class StreamsModule {
     this.rpcUrl     = config.rpcUrl ?? DEFAULT_RPC[config.network];
     this.passphrase = NETWORK_PASSPHRASE[config.network];
     this._factory   = new FactoryModule(config);
+    this._fee       = resolveFee(config);
 
     if (config.wallet) {
       this.activeWallet = config.wallet;
@@ -250,7 +259,7 @@ export class StreamsModule {
       boolToScVal(clawbackEnabled),
     ];
 
-    const tx     = await buildContractCallTx(this.rpcUrl, this.passphrase, senderAddr, factoryId, 'create_stream', args);
+    const tx     = await buildContractCallTx(this.rpcUrl, this.passphrase, senderAddr, factoryId, 'create_stream', args, this._fee);
     const server = this._server();
     const sim    = await catchNetworkError('simulateTransaction (create)', server.simulateTransaction(tx));
 
@@ -450,7 +459,7 @@ export class StreamsModule {
     this._ensureCanMutate();
     const addr   = await this._resolveAddr(BigInt(streamId));
     const caller = await this._getSenderAddress();
-    const tx     = await buildContractCallTx(this.rpcUrl, this.passphrase, caller, addr, 'clawback', []);
+    const tx     = await buildContractCallTx(this.rpcUrl, this.passphrase, caller, addr, 'clawback', [], this._fee);
     const server = this._server();
     const sim    = await catchNetworkError('simulateTransaction (clawback)', server.simulateTransaction(tx));
 
@@ -790,7 +799,7 @@ export class StreamsModule {
   /** Simulate -> assemble -> sign -> submit -> poll. Returns txHash. */
   private async _invoke(contractId: string, method: string, args: xdr.ScVal[]): Promise<string> {
     const senderAddr = await this._getSenderAddress();
-    const tx         = await buildContractCallTx(this.rpcUrl, this.passphrase, senderAddr, contractId, method, args);
+    const tx         = await buildContractCallTx(this.rpcUrl, this.passphrase, senderAddr, contractId, method, args, this._fee);
     const server     = this._server();
     const sim        = await catchNetworkError('simulateTransaction (invoke)', server.simulateTransaction(tx));
     if (SorobanRpc.Api.isSimulationError(sim)) {

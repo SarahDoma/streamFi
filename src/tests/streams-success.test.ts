@@ -491,7 +491,7 @@ describe('StreamsModule.transferRecipient() — success path', () => {
     await runThroughFirstPoll(() => sdk.transferRecipient(1n, newRecipient));
     expect(buildContractCallTx).toHaveBeenCalledWith(
       expect.any(String), expect.any(String), expect.any(String),
-      STREAM_ADDR, 'transfer_recipient', [expect.anything()],
+      STREAM_ADDR, 'transfer_recipient', [expect.anything()], expect.any(String),
     );
   });
 });

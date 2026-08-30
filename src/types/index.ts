@@ -36,6 +36,20 @@ export interface ConduitConfig {
   confirmationPollIntervalMs?: number;
   /** Override Soroban confirmation polling attempts; default 30 */
   confirmationMaxAttempts?: number;
+  /**
+   * Explicit inclusion (bid) fee in stroops for submitted transactions.
+   * Takes precedence over `feeMultiplier`. Defaults to `BASE_FEE` (100
+   * stroops) when neither is set, which is the network minimum and is not
+   * competitive under inclusion-fee pressure (surge pricing, congested
+   * ledgers) — see #509.
+   */
+  fee?: string;
+  /**
+   * Multiplier applied to `BASE_FEE` to compute the inclusion fee for
+   * submitted transactions, e.g. `10` bids 10x the network minimum.
+   * Ignored when `fee` is set. Defaults to `1` (BASE_FEE, unchanged).
+   */
+  feeMultiplier?: number;
 }
 
 export interface StreamInfo {
