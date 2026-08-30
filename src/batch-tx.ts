@@ -259,7 +259,10 @@ export function buildBatchTransactionsSync(
  * Build one transaction per operation and prepare each via RPC simulation, so
  * the returned XDR carries its footprint and auth and is ready to submit.
  *
- * Falls back to offline building when no `rpcUrl` is configured.
+ * Falls back to offline building when no `rpcUrl` is configured. Either
+ * `sequence` or `rpcUrl` is required — `sequence` builds offline, `rpcUrl`
+ * fetches the sequence and prepares the transactions. Supplying neither fails
+ * validation.
  */
 export async function buildBatchTransactions(
   operations: BuildableOperation[],
