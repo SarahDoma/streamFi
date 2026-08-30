@@ -499,14 +499,37 @@ export const DEFAULT_RESOURCE_FEE_ESTIMATE = 1_000_000n;
 export function estimateRequiredFee(simResult: unknown, fallbackStroops = DEFAULT_RESOURCE_FEE_ESTIMATE): bigint {
   if (simResult && typeof simResult === 'object') {
     const r = simResult as { minResourceFee?: unknown; fee?: unknown };
-    if (r.minResourceFee !== undefined) {
-      const fee = BigInt(r.minResourceFee as string | number | bigint);
-      if (fee > 0n) return fee;
-    }
-    if (r.fee !== undefined) {
-      const fee = BigInt(r.fee as string | number | bigint);
-      if (fee > 0n) return fee;
-    }
+    const fromMin = toPositiveBigIntOrNull(r.minResourceFee);
+    if (fromMin !== null) return fromMin;
+    const fromFee = toPositiveBigIntOrNull(r.fee);
+    if (fromFee !== null) return fromFee;
   }
   return fallbackStroops;
+}
+
+/**
+ * Coerce an RPC-supplied fee field to a positive `bigint`, or `null` if it
+ * can't be — including the case a non-conforming RPC returns a float
+ * (`minResourceFee: 1234.5`), which would make a bare `BigInt(...)` throw a
+ * raw `RangeError` out of the fee-estimation path and abort a `create()`
+ * that could have fallen back to the default estimate (#577).
+ */
+function toPositiveBigIntOrNull(value: unknown): bigint | null {
+  if (value === undefined || value === null) return null;
+  try {
+    let n: bigint;
+    if (typeof value === 'bigint') {
+      n = value;
+    } else if (typeof value === 'number') {
+      if (!Number.isFinite(value)) return null;
+      n = BigInt(Math.trunc(value));
+    } else if (typeof value === 'string') {
+      n = BigInt(value.trim());
+    } else {
+      return null;
+    }
+    return n > 0n ? n : null;
+  } catch {
+    return null;
+  }
 }
