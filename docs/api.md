@@ -509,8 +509,18 @@ Issues a single GraphQL query as an HTTP POST and returns the parsed JSON respon
 | `query` | `string` | ✓ |
 | `variables` | `Record<string, unknown>` | |
 | `headers` | `Record<string, string>` | |
+| `timeoutMs` | `number` | |
+| `signal` | `AbortSignal` | |
 
-**Throws** if `query` is empty, or if the HTTP response is not `ok`.
+The request is wired to a per-request `AbortController`. If the indexer has not responded within
+`timeoutMs` (default `DEFAULT_INDEXER_TIMEOUT_MS`, 15_000) the fetch is aborted and `query()`
+rejects with an `IndexerTimeoutError` (whose `endpoint` and `timeoutMs` fields describe what
+timed out). Pass `timeoutMs: 0`/`Infinity` to disable the SDK timeout. A caller-supplied `signal`
+aborts the in-flight request and rejects with the underlying `AbortError` — use it to cancel on
+unmount or navigation.
+
+**Throws** if `query` is empty, if the HTTP response is not `ok`, or with an
+`IndexerTimeoutError` when the request exceeds `timeoutMs`.
 
 ### `subscribe(options) → IndexerSubscription`
 
@@ -526,10 +536,22 @@ available (e.g. some non-browser, non-Node runtimes) it falls back to reading a
 | `headers` | `Record<string, string>` | |
 | `onData` | `(data: unknown) => void` | ✓ |
 | `onError` | `(error: Error) => void` | |
+| `maxReconnectAttempts` | `number` (0–32, default 5) | |
+| `reconnectDelayMs` | `number` (0–60000, default 1000) | |
+
+On the WebSocket path, an unexpected socket close calls `onError` (if provided) and retries
+with linear backoff (`reconnectDelayMs * attempt`), matching `WebSocketRelayer`. The
+subscription stays active until `unsubscribe()`, `cleanup()`, or the retry budget is
+exhausted. Exhaustion calls `onError` again with a message containing `exhausted` and then
+tears the subscription down. The SSE fallback does not reconnect.
+
+`maxReconnectAttempts` / `reconnectDelayMs` must be integers in the ranges above; out-of-range
+values throw before a socket is opened. `maxReconnectAttempts: 0` reports the close and
+tears down immediately.
 
 Returns `{ unsubscribe(): void }`. Calling `unsubscribe()` is idempotent — it sends a
-`complete` message (WebSocket transport) or aborts the underlying fetch (SSE fallback) and is
-safe to call more than once.
+`complete` message (WebSocket transport) or aborts the underlying fetch (SSE fallback),
+cancels any pending reconnect timer, and is safe to call more than once.
 
 ### `getSubscriptionCount() → number`
 

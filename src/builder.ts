@@ -420,10 +420,10 @@ export class StreamBuilder {
         );
       }
     } else {
-      // sender / recipient — must be valid Ed25519 public keys (G-addresses)
-      if (!StrKey.isValidEd25519PublicKey(address)) {
+      // sender / recipient — must be valid Stellar addresses (G-address or C-address)
+      if (!StrKey.isValidEd25519PublicKey(address) && !StrKey.isValidContract(address)) {
         throw new Error(
-          `Invalid StreamBuilder parameter: ${field} must be a valid Stellar public key (G-address), got "${address}"`,
+          `Invalid StreamBuilder parameter: ${field} must be a valid Stellar public key or contract address (G-address or C-address), got "${address}"`,
         );
       }
     }
@@ -557,19 +557,19 @@ function validatePayload(streams: unknown): string[] {
         }
       }
 
-      // Validate sender field — must be a valid Ed25519 public key (G-address)
+      // Validate sender field — must be a valid Stellar public key (G-address) or contract ID (C-address)
       if (obj.sender !== undefined && obj.sender !== null) {
         const sender = String(obj.sender);
-        if (!StrKey.isValidEd25519PublicKey(sender)) {
-          errors.push(`Batch item at index ${i}: sender must be a valid Stellar public key (G-address), got "${sender}"`);
+        if (!StrKey.isValidEd25519PublicKey(sender) && !StrKey.isValidContract(sender)) {
+          errors.push(`Batch item at index ${i}: sender must be a valid Stellar public key or contract address (G-address or C-address), got "${sender}"`);
         }
       }
 
-      // Validate recipient field — must be a valid Ed25519 public key (G-address)
+      // Validate recipient field — must be a valid Stellar public key (G-address) or contract ID (C-address)
       if (obj.recipient !== undefined && obj.recipient !== null) {
         const recipient = String(obj.recipient);
-        if (!StrKey.isValidEd25519PublicKey(recipient)) {
-          errors.push(`Batch item at index ${i}: recipient must be a valid Stellar public key (G-address), got "${recipient}"`);
+        if (!StrKey.isValidEd25519PublicKey(recipient) && !StrKey.isValidContract(recipient)) {
+          errors.push(`Batch item at index ${i}: recipient must be a valid Stellar public key or contract address (G-address or C-address), got "${recipient}"`);
         }
       }
 
