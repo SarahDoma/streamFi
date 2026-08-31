@@ -21,7 +21,11 @@ export type {
   BatchSubmitOptions,
 } from './batch-tx.js';
 export { GraphQLIndexer, DEFAULT_INDEXER_TIMEOUT_MS } from './indexer.js';
-export type { GraphQLQueryOptions, GraphQLSubscriptionOptions, IndexerSubscription } from './indexer.js';
+export type {
+  GraphQLQueryOptions,
+  GraphQLSubscriptionOptions,
+  IndexerSubscription,
+} from './indexer.js';
 export { KeypairSigner } from './signer.js';
 export type { Signer } from './signer.js';
 export {
