@@ -662,11 +662,14 @@ export function selectVisibleTransactions(
   const page = clampPage(state?.page ?? 0, totalPages);
   const start = page * pageSize;
 
+  // Always use the same ordering (`topKByTimestampDesc`, which tie-breaks
+  // equal timestamps on the original index via `isLowerPriority`) so that
+  // paging through a dataset that shares timestamps never changes order
+  // part-way and duplicates/skips rows across the page boundary (#567).
+  // The function is O(n log k) and degrades to a full sort for deep pages,
+  // so there is no cost to using it uniformly.
   const k = start + pageSize;
-  const top =
-    k < filtered.length * 0.5
-      ? topKByTimestampDesc(filtered, k)
-      : [...filtered].sort((a, b) => b.timestamp - a.timestamp);
+  const top = topKByTimestampDesc(filtered, k);
   return top.slice(start, start + pageSize);
 }
 
