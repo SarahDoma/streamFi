@@ -15,6 +15,7 @@ export {
 export type {
   BatchTransactionContext,
   BuiltBatchTransaction,
+  ScValType,
   BatchSubmitResult,
   BatchTxOutcome,
   BatchTxStatus,

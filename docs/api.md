@@ -641,7 +641,9 @@ const result = await new StreamBuilder()
 
 A utility class to bundle multiple stream operations with mandatory client-side validation. `execute`/`executeAsync` are **instance methods** — instantiate with `new ConduitBatcher()` first (see [`examples/fluent-builder.ts`](../examples/fluent-builder.ts)).
 
-> **Building real `create_stream` calls:** `execute()` takes plain `Record<string, unknown>[]` and, with no `args`, encodes each item as a single sorted map keyed by whatever properties it happens to have — it has no knowledge of any contract's ABI. Passing raw `StreamBuilder.build()` output to it therefore does **not** produce a valid `create_stream` invocation (wrong key casing, `amount` encoded as `i64` instead of `i128`, and no `start_time`/`end_time`/`clawback_enabled` at all). To actually invoke `create_stream`, build a `BatchOperation` with `StreamBuilder.toBatchOperation()` (which supplies the correct positional, ABI-typed `args`) and pass it to `executeAsync()`.
+> **Building real `create_stream` calls:** `execute()` takes plain `Record<string, unknown>[]`. With the default `create_stream` method it builds the exact positional, ABI-typed args (`deposit_amount`/`rate_per_sec` as `i128`, `start_time`/`end_time` as `u64`, honoring `startTime`/`endTime`/`clawbackEnabled` when present); for other methods it encodes each item as a single sorted map keyed by whatever properties it happens to have. `execute()` does no ABI validation (a missing `ratePerSecond` silently becomes `0`, for example), so for a fully validated `create_stream` invocation build a `BatchOperation` with `StreamBuilder.toBatchOperation()` (which supplies the correct positional, ABI-typed `args`) and pass it to `executeAsync()`.
+>
+> **Integer encoding:** `paramToScVal()` no longer forces every integer `number` to `i64` and every `bigint` to `i128`. Untyped positive integers now encode as `u64` (matching the contract's `start_time`/`end_time`/stream-ID types) and negatives as `i64`; pass an explicit type (`paramToScVal(value, 'i128')`) or a per-field `BatchOperation.types` hint (e.g. `{ streamId: 'u64', amount: 'i128' }`) to force a specific width, and already-encoded `xdr.ScVal`s pass through untouched (#497).
 
 #### Methods
 
@@ -671,7 +673,7 @@ if (!result.success) {
 }
 ```
 
-* `executeAsync(operations: BatchOperation[], signalOrOptions?: AbortSignal | BatchExecuteAsyncOptions): Promise<BatchResult>` - Asynchronously execute a batch with abort signal / options support. `BatchOperation.args`, when present, is used verbatim as the contract's positional arguments (see `StreamBuilder.toBatchOperation()`).
+* `executeAsync(operations: BatchOperation[], signalOrOptions?: AbortSignal | BatchExecuteAsyncOptions): Promise<BatchResult>` - Asynchronously execute a batch with abort signal / options support. `BatchOperation.args`, when present, is used verbatim as the contract's positional arguments (see `StreamBuilder.toBatchOperation()`). `BatchOperation.types` supplies per-field ScVal type hints for the `params` map (e.g. `{ method: 'withdraw', params: { streamId: 1n }, types: { streamId: 'u64' } }`) so u64 stream IDs and i128 amounts encode with the correct width instead of the default inference (#497).
 
 **Throws:** `Error` if batcher is destroyed.
 
