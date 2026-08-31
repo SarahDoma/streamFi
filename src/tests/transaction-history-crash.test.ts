@@ -512,6 +512,17 @@ describe('#136 — formatters tolerate undefined input', () => {
     expect(formatAmount('123456789012345')).toBe('12,345,678.9012345');
     expect(formatAmount('-10000000')).toBe('-1');
     expect(formatAmount('123', 0)).toBe('123');
+    expect(formatAmount('15000000', 7)).toBe('1.5');
+  });
+
+  it('formatAmount rejects non-integer stroop strings instead of mis-scaling (#565)', () => {
+    expect(formatAmount('1.5')).toBe('0');
+    expect(formatAmount('1,000')).toBe('0');
+    expect(formatAmount('1e7')).toBe('0');
+    expect(formatAmount('12345678.9')).toBe('0');
+    expect(formatAmount(' 12345678 ')).toBe('1.2345678');
+    expect(formatAmount('-1.5')).toBe('0');
+    expect(formatAmount('--10000000')).toBe('0');
   });
 
   it('formatTimestamp', () => {
