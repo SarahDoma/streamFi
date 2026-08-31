@@ -14,6 +14,7 @@ export {
 export type {
   BatchTransactionContext,
   BuiltBatchTransaction,
+  ScValType,
 } from './batch-tx.js';
 export { GraphQLIndexer } from './indexer.js';
 export { KeypairSigner } from './signer.js';

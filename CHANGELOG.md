@@ -19,6 +19,7 @@ All notable changes are documented here. Format based on [Keep a Changelog](http
 - `StreamsModule.transferRecipient()` — wraps the contract's `transfer_recipient()` so the current recipient can reassign the recipient role (previously only a prose TODO) (#454)
 - `NonceManager` (the bigint-based, queue-with-cancellation implementation) is now exported from the package entry point, along with its `NonceLock`/`NonceManagerOptions` types. Previously neither `NonceManager` implementation was reachable outside SDK source (#483).
 - `subscribeToStream()` / `client.streams.subscribe()` now accept `maxBackoffMs` and `maxConsecutiveFailures` options controlling the new exponential-backoff-with-cutoff polling behaviour (#485).
+- `paramToScVal(value, type?)` accepts an explicit ScVal type hint (`'u64'`, `'i128'`, ...) and passes already-encoded `xdr.ScVal`s through untouched; `BatchOperation.types` supplies per-field type information for the `params` map (e.g. `{ streamId: 'u64', amount: 'i128' }`) so a u64 stream ID or an i128 amount encodes with the exact width the contract expects instead of the default inference (#497).
 
 ### Performance
 - `FactoryModule.streamAddress()` now caches resolved stream→contract-address lookups in-memory, since the mapping is fixed at stream creation and never changes. Eliminates redundant RPC round trips on every `StreamsModule` read/write operation (`get`, `withdraw`, `cancel`, `pause`, `resume`, `topUp`, `clawback`) and on each page of `list()`, which previously re-resolved the same address for every stream on every call.
@@ -27,6 +28,7 @@ All notable changes are documented here. Format based on [Keep a Changelog](http
 ### Changed
 - `StreamsModule` now routes all signer-selection logic through its private `_signer()` helper instead of touching `config.signer` directly, removing dead code (#446).
 - CAIP-2→network mapping consolidated into a single exported `CAIP2_TO_NETWORK` constant shared by `ConduitClient`'s wallet network check and `WalletConnectAdapter`'s chain validation, so the two can never disagree (#445).
+- **Breaking (encoded ScVal types):** `paramToScVal()` no longer forces every integer `number` to `i64` and every `bigint` to `i128`. Untyped positive integers now encode as `u64` and negatives as `i64` — matching the contract's u64 ABI fields (`create_stream`'s `start_time`/`end_time`, stream IDs), which previously arrived with the wrong ScVal type and were rejected contract-side (#497).
 
 ### Removed
 - Removed orphaned `RoomManager` (`src/room-manager.js`) and `src/server.js` WebSocket server, along with unused `dotenv` production dependency (#442).
@@ -47,6 +49,8 @@ All notable changes are documented here. Format based on [Keep a Changelog](http
 - Documented `StreamBuilder.startTime()`/`endTime()`/`clawbackEnabled()`/`toContractArgs()`/`toBatchOperation()` in `docs/api.md`, and added a note under `ConduitBatcher` clarifying that `execute()` alone cannot build a real `create_stream` invocation (#435).
 
 ### Fixed
+- `ConduitBatcher.execute()`'s `create_stream` path now builds ABI-exact positional args — `deposit_amount`/`rate_per_sec` as `i128`, `start_time`/`end_time` as `u64` (honoring `startTime`/`endTime`/`clawbackEnabled` when present) — instead of feeding raw values through the old blanket i64/i128 encoding (#497).
+- Removed a duplicate `let consecutiveFailures = 0;` declaration in `src/events.ts` that made the module a `SyntaxError` at load time, breaking `npm run typecheck`, the `npm ci` build, and every event-subscription test.
 - `subscribeToStream()` (`client.streams.subscribe()`) now seeds `startLedger` from `server.getLatestLedger()` before its first `getEvents()` call. Previously the first poll omitted `startLedger` entirely (it started at `0` and was only included once `> 0`), so Soroban RPC's `getEvents` rejected every call, the rejection was swallowed, and the subscription never delivered a single event (#484).
 - `subscribeToStream()` now backs off exponentially (`pollInterval * 2^(consecutiveFailures - 1)`, capped at the new `maxBackoffMs`) after consecutive polling failures instead of retrying at a fixed interval forever, and stops polling once `maxConsecutiveFailures` consecutive failures have occurred instead of spinning against a permanently-broken RPC endpoint indefinitely (#485).
 - `Module36` and `Module48` no longer each maintain their own copy of the "open-ended stream progress (`NaN`) → `0.5`" normalization. It's now a single shared `normalizeProgress()` in `src/utils.ts`, closing the gap where the two modules' progress calculations could in principle drift out of sync at the edges (#482).
