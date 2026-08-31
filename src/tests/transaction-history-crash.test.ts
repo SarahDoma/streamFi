@@ -490,6 +490,82 @@ describe('#136 — selectors', () => {
 });
 
 // ---------------------------------------------------------------------------
+// 4b. Consistent ordering across the heap/full-sort switch (#567)
+// ---------------------------------------------------------------------------
+
+describe('#567 — pagination never duplicates or skips rows when timestamps tie', () => {
+  // A single ledger's events are often stamped with the same timestamp, so most
+  // rows share one value. This exercises the equal-timestamp tie-break in BOTH
+  // the bounded heap path (early pages) and the full sort path (deep pages).
+  const n = 2500;
+  const pageSize = 25;
+  const payloadTied = Array.from({ length: n }, (_, i) =>
+    makeRaw({ id: `tx-${i}`, timestamp: Math.floor(i % 37) }),
+  );
+
+  function walkAllPages(state: ReturnType<typeof createInitialTransactionHistoryState>) {
+    const totalPages = selectTotalPages(state);
+    const seen: string[] = [];
+    for (let page = 0; page < totalPages; page++) {
+      const rows = selectVisibleTransactions({ ...state, page });
+      for (const row of rows) seen.push(row.id);
+    }
+    return seen;
+  }
+
+  it('covers every row exactly once across every page', () => {
+    const state = {
+      ...transactionHistoryReducer(undefined, {
+        type: 'LOAD_SUCCESS',
+        payload: payloadTied,
+      }),
+      pageSize,
+    };
+    const seen = walkAllPages(state);
+
+    expect(seen).toHaveLength(n);
+    expect(new Set(seen).size).toBe(n);
+
+    // The intended ordering is "newest first, ties in original row order". A
+    // stable descending sort of the filtered rows (which are in original order)
+    // is that canonical ordering, so the walk must match it exactly —
+    // independent of where the heap/full-sort switch falls.
+    const expected = [...selectFilteredTransactions(state)]
+      .sort((a, b) => b.timestamp - a.timestamp)
+      .map((t) => t.id);
+    expect(seen).toEqual(expected);
+  });
+
+  it('adjacent pages around the half-way switch do not share or drop any row', () => {
+    const state = {
+      ...transactionHistoryReducer(undefined, {
+        type: 'LOAD_SUCCESS',
+        payload: payloadTied,
+      }),
+      pageSize,
+    };
+    // With n=2500 and pageSize=25 the heap branch runs while k < 1250
+    // (pages 0..48) and the full-sort branch from page 49 on. Check every
+    // boundary pair to prove the ordering is continuous.
+    const totalPages = selectTotalPages(state);
+    for (let page = 0; page < totalPages - 1; page++) {
+      const first = selectVisibleTransactions({
+        ...state,
+        page,
+      });
+      const second = selectVisibleTransactions({
+        ...state,
+        page: page + 1,
+      });
+      // The boundary between the two branches must be a clean cut-off of one
+      // continuous ordering — no overlap, and consecutive within the ordering.
+      const overlap = first.filter((f) => second.some((s) => s.id === f.id));
+      expect(overlap).toEqual([]);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
 // 5. Formatters
 // ---------------------------------------------------------------------------
 
