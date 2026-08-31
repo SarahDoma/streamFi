@@ -140,17 +140,6 @@ export class StreamsModule {
     return this.config.signer ?? null;
   }
 
-  private _signerPublicKey(): string {
-    if (this.activeWallet) {
-      const pk = this.activeWallet.getPublicKey();
-      if (typeof pk === 'string') return pk;
-    }
-    const signer = this._signer();
-    if (signer) return signer.publicKey();
-    if (this.config.keypair) return this.config.keypair.publicKey();
-    return ZERO_ADDR;
-  }
-
   /**
    * Resolve the caller address, handling both sync and async getPublicKey().
    * Safe when the wallet adapter returns a promise — but it MUST only be
@@ -749,11 +738,12 @@ export class StreamsModule {
     }
     const signer = this._signer();
     if (signer) {
-      const result = signer.sign(tx);
-      if (result != null) {
-        await result;
-      }
-      return tx;
+      // A Signer may mutate `tx` in place and return void, or return a new
+      // signed Transaction. Honour the return value when it is a Transaction;
+      // returning `tx` unconditionally dropped the signature for
+      // immutable-style signers, submitting an unsigned transaction (#519).
+      const result = await signer.sign(tx);
+      return result instanceof Transaction ? result : tx;
     }
     if (this.config.keypair) {
       tx.sign(this.config.keypair);

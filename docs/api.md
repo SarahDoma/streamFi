@@ -251,10 +251,10 @@ const sub = client.streams.subscribe(streamId, {
   onRecipientTransfer:  e => console.log('Recipient transferred to:', e.newRecipient),
   onOperatorSet:        e => console.log('Operator set:', e.operator),
   onOperatorRevoke:     e => console.log('Operator revoked:', e.operator),
-  onError:     err => console.warn('poll failed:', err),
-  pollInterval: 3000,          // ms; default 5000
-  maxBackoffMs: 60_000,        // cap on exponential backoff after failures; default 60_000
-  maxConsecutiveFailures: 10,  // stop polling after this many failures in a row; default 10 (0 = never)
+  onError:     err => console.warn('Polling error:', err),
+  pollInterval:            3000,   // ms; default 5000
+  maxBackoffMs:            30000,  // ms; default 60000
+  maxConsecutiveFailures:  5,      // default 10
 });
 
 sub.unsubscribe();
@@ -281,6 +281,17 @@ sub.unsubscribe();
 > `onRecipientTransfer`, `onForceCancel`, `onOperatorSet`, and `onOperatorRevoke` were previously
 > silently ignored — a live subscriber was never notified when the recipient role moved to
 > another address, a paused stream was force-cancelled, or an operator was delegated/revoked.
+
+The first poll seeds its start ledger from `getLatestLedger()` before calling `getEvents()` (Soroban
+RPC's `getEvents` rejects without a start ledger). If that seeding call itself fails, it's retried on
+the next poll rather than leaving the subscription permanently unable to seed a cursor.
+
+A polling failure calls `onError` and reschedules the next poll with exponential backoff —
+`pollInterval * 2^(consecutiveFailures - 1)`, capped at `maxBackoffMs` — instead of retrying at a
+fixed interval. A successful poll resets the failure count and the delay back to `pollInterval`. If
+`maxConsecutiveFailures` consecutive polls fail in a row, the subscription stops polling entirely
+(after the final `onError` call for that failure) rather than retrying forever against a dead
+endpoint; call `subscribe()` again to restart it.
 
 ---
 
@@ -553,8 +564,18 @@ Issues a single GraphQL query as an HTTP POST and returns the parsed JSON respon
 | `query` | `string` | ✓ |
 | `variables` | `Record<string, unknown>` | |
 | `headers` | `Record<string, string>` | |
+| `timeoutMs` | `number` | |
+| `signal` | `AbortSignal` | |
 
-**Throws** if `query` is empty, or if the HTTP response is not `ok`.
+The request is wired to a per-request `AbortController`. If the indexer has not responded within
+`timeoutMs` (default `DEFAULT_INDEXER_TIMEOUT_MS`, 15_000) the fetch is aborted and `query()`
+rejects with an `IndexerTimeoutError` (whose `endpoint` and `timeoutMs` fields describe what
+timed out). Pass `timeoutMs: 0`/`Infinity` to disable the SDK timeout. A caller-supplied `signal`
+aborts the in-flight request and rejects with the underlying `AbortError` — use it to cancel on
+unmount or navigation.
+
+**Throws** if `query` is empty, if the HTTP response is not `ok`, or with an
+`IndexerTimeoutError` when the request exceeds `timeoutMs`.
 
 ### `subscribe(options) → IndexerSubscription`
 
@@ -570,10 +591,22 @@ available (e.g. some non-browser, non-Node runtimes) it falls back to reading a
 | `headers` | `Record<string, string>` | |
 | `onData` | `(data: unknown) => void` | ✓ |
 | `onError` | `(error: Error) => void` | |
+| `maxReconnectAttempts` | `number` (0–32, default 5) | |
+| `reconnectDelayMs` | `number` (0–60000, default 1000) | |
+
+On the WebSocket path, an unexpected socket close calls `onError` (if provided) and retries
+with linear backoff (`reconnectDelayMs * attempt`), matching `WebSocketRelayer`. The
+subscription stays active until `unsubscribe()`, `cleanup()`, or the retry budget is
+exhausted. Exhaustion calls `onError` again with a message containing `exhausted` and then
+tears the subscription down. The SSE fallback does not reconnect.
+
+`maxReconnectAttempts` / `reconnectDelayMs` must be integers in the ranges above; out-of-range
+values throw before a socket is opened. `maxReconnectAttempts: 0` reports the close and
+tears down immediately.
 
 Returns `{ unsubscribe(): void }`. Calling `unsubscribe()` is idempotent — it sends a
-`complete` message (WebSocket transport) or aborts the underlying fetch (SSE fallback) and is
-safe to call more than once.
+`complete` message (WebSocket transport) or aborts the underlying fetch (SSE fallback),
+cancels any pending reconnect timer, and is safe to call more than once.
 
 ### `getSubscriptionCount() → number`
 
@@ -663,7 +696,9 @@ const result = await new StreamBuilder()
 
 A utility class to bundle multiple stream operations with mandatory client-side validation. `execute`/`executeAsync` are **instance methods** — instantiate with `new ConduitBatcher()` first (see [`examples/fluent-builder.ts`](../examples/fluent-builder.ts)).
 
-> **Building real `create_stream` calls:** `execute()` takes plain `Record<string, unknown>[]` and, with no `args`, encodes each item as a single sorted map keyed by whatever properties it happens to have — it has no knowledge of any contract's ABI. Passing raw `StreamBuilder.build()` output to it therefore does **not** produce a valid `create_stream` invocation (wrong key casing, `amount` encoded as `i64` instead of `i128`, and no `start_time`/`end_time`/`clawback_enabled` at all). To actually invoke `create_stream`, build a `BatchOperation` with `StreamBuilder.toBatchOperation()` (which supplies the correct positional, ABI-typed `args`) and pass it to `executeAsync()`.
+> **Building real `create_stream` calls:** `execute()` takes plain `Record<string, unknown>[]`. With the default `create_stream` method it builds the exact positional, ABI-typed args (`deposit_amount`/`rate_per_sec` as `i128`, `start_time`/`end_time` as `u64`, honoring `startTime`/`endTime`/`clawbackEnabled` when present); for other methods it encodes each item as a single sorted map keyed by whatever properties it happens to have. `execute()` does no ABI validation (a missing `ratePerSecond` silently becomes `0`, for example), so for a fully validated `create_stream` invocation build a `BatchOperation` with `StreamBuilder.toBatchOperation()` (which supplies the correct positional, ABI-typed `args`) and pass it to `executeAsync()`.
+>
+> **Integer encoding:** `paramToScVal()` no longer forces every integer `number` to `i64` and every `bigint` to `i128`. Untyped positive integers now encode as `u64` (matching the contract's `start_time`/`end_time`/stream-ID types) and negatives as `i64`; pass an explicit type (`paramToScVal(value, 'i128')`) or a per-field `BatchOperation.types` hint (e.g. `{ streamId: 'u64', amount: 'i128' }`) to force a specific width, and already-encoded `xdr.ScVal`s pass through untouched (#497).
 
 #### Methods
 
@@ -693,7 +728,7 @@ if (!result.success) {
 }
 ```
 
-* `executeAsync(operations: BatchOperation[], signalOrOptions?: AbortSignal | BatchExecuteAsyncOptions): Promise<BatchResult>` - Asynchronously execute a batch with abort signal / options support. `BatchOperation.args`, when present, is used verbatim as the contract's positional arguments (see `StreamBuilder.toBatchOperation()`).
+* `executeAsync(operations: BatchOperation[], signalOrOptions?: AbortSignal | BatchExecuteAsyncOptions): Promise<BatchResult>` - Asynchronously execute a batch with abort signal / options support. `BatchOperation.args`, when present, is used verbatim as the contract's positional arguments (see `StreamBuilder.toBatchOperation()`). `BatchOperation.types` supplies per-field ScVal type hints for the `params` map (e.g. `{ method: 'withdraw', params: { streamId: 1n }, types: { streamId: 'u64' } }`) so u64 stream IDs and i128 amounts encode with the correct width instead of the default inference (#497).
 
 **Throws:** `Error` if batcher is destroyed.
 
@@ -710,12 +745,7 @@ still consumed sequentially even though simulation itself is not.
 
 ---
 
-## `NonceManager` (`src/nonce/NonceManager.ts`)
-
-Exported from the package entry point (`src/index.ts`) alongside its `NonceLock` and
-`NonceManagerOptions` types. This is the bigint-based implementation; the earlier
-`number`-based `src/nonce-manager.ts` duplicate (which could not represent Stellar
-int64 sequence numbers above 2^53) has been removed.
+## `NonceManager`
 
 ```typescript
 const nonces = new NonceManager({ startNonce: 0n, maxNonce: 1_000_000n });

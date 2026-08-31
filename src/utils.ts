@@ -98,10 +98,10 @@ export function streamProgress(stream: StreamInfo, nowSec = Math.floor(Date.now(
 }
 
 /**
- * Normalizes a `streamProgress()` result for display / comparison purposes,
- * mapping the NaN case (an open-ended stream that has already started) to the
- * midpoint 0.5. Shared by Module36 and Module48 so their progress deltas agree
- * at the edges instead of drifting via independent reimplementations.
+ * Normalizes a `streamProgress()` result for display/comparison purposes,
+ * mapping the NaN case (open-ended stream that has started) to the
+ * midpoint 0.5. Shared by Module36 and Module48 so their progress deltas
+ * agree at the edges instead of drifting via independent reimplementations.
  */
 export function normalizeProgress(value: number): number {
   return Number.isNaN(value) ? 0.5 : value;
@@ -187,10 +187,10 @@ export function bigintSafeStringify<T>(value: T): T {
 
 /**
  * Validates whether a string is a well-formed Stellar public key
- * (account address, e.g. 'GABC...XYZ').
+ * (account address, e.g. 'GABC...XYZ') or Soroban contract address ('CABC...XYZ').
  *
  * Performs static format validation only (StrKey encoding, version byte,
- * checksum) -- it does not check whether the account exists on-chain.
+ * checksum) -- it does not check whether the account or contract exists on-chain.
  * Use this to fail fast before submission, e.g. before passing a recipient
  * into client.streams.create().
  */
@@ -198,5 +198,5 @@ export function isValidAddress(address: string): boolean {
   if (typeof address !== 'string' || address.length === 0) {
     return false;
   }
-  return StrKey.isValidEd25519PublicKey(address);
+  return StrKey.isValidEd25519PublicKey(address) || StrKey.isValidContract(address);
 }
