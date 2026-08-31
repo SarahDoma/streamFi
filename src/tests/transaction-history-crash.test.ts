@@ -362,6 +362,110 @@ describe('#136 — normalisation of hostile indexer payloads', () => {
 });
 
 // ---------------------------------------------------------------------------
+// 3b. Direction derivation from the connected wallet (ISSUE-566)
+// ---------------------------------------------------------------------------
+
+describe('#566 — direction is derived from the connected wallet', () => {
+  const WALLET = 'GABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+
+  it('keeps an explicit indexer direction even when a wallet is supplied', () => {
+    const record = normalizeTransaction(
+      makeRaw({ kind: 'WITHDRAW', direction: 'OUT' }),
+      WALLET,
+    );
+    expect(record?.direction).toBe('OUT');
+  });
+
+  it('derives IN for WITHDRAW (wallet is the recipient)', () => {
+    const record = normalizeTransaction(
+      makeRaw({ kind: 'WITHDRAW', direction: undefined }),
+      WALLET,
+    );
+    expect(record?.direction).toBe('IN');
+  });
+
+  it('derives OUT for CREATE and TOP_UP (wallet is the sender)', () => {
+    expect(
+      normalizeTransaction(makeRaw({ kind: 'CREATE', direction: undefined }), WALLET)
+        ?.direction,
+    ).toBe('OUT');
+    expect(
+      normalizeTransaction(makeRaw({ kind: 'TOP_UP', direction: undefined }), WALLET)
+        ?.direction,
+    ).toBe('OUT');
+    expect(
+      normalizeTransaction(makeRaw({ kind: 'create', direction: undefined }), WALLET)
+        ?.direction,
+    ).toBe('OUT');
+  });
+
+  it('leaves non-directional kinds as UNKNOWN', () => {
+    for (const kind of ['PAUSE', 'RESUME', 'CANCEL']) {
+      expect(
+        normalizeTransaction(makeRaw({ kind, direction: undefined }), WALLET)
+          ?.direction,
+      ).toBe('UNKNOWN');
+    }
+  });
+
+  it('falls back to UNKNOWN when no wallet is connected', () => {
+    expect(
+      normalizeTransaction(makeRaw({ kind: 'WITHDRAW', direction: undefined }))
+        ?.direction,
+    ).toBe('UNKNOWN');
+    expect(
+      normalizeTransaction(makeRaw({ kind: 'CREATE', direction: undefined }), '')
+        ?.direction,
+    ).toBe('UNKNOWN');
+  });
+
+  it('keeps UNKNOWN when the kind itself is unknown', () => {
+    expect(
+      normalizeTransaction(
+        makeRaw({ kind: 'MYSTERY', direction: undefined }),
+        WALLET,
+      )?.direction,
+    ).toBe('UNKNOWN');
+  });
+
+  it('threads the wallet through normalizeTransactions', () => {
+    const result = normalizeTransactions(
+      [
+        makeRaw({ id: 'withdraw-1', kind: 'WITHDRAW', direction: undefined }),
+        makeRaw({ id: 'create-1', kind: 'CREATE', direction: undefined }),
+      ],
+      WALLET,
+    );
+    expect(result[0]?.direction).toBe('IN');
+    expect(result[1]?.direction).toBe('OUT');
+  });
+
+  it('threads the wallet through the reducer LOAD_SUCCESS action', () => {
+    const state = transactionHistoryReducer(undefined, {
+      type: 'LOAD_SUCCESS',
+      payload: {
+        transactions: [
+          makeRaw({ id: 'withdraw-1', kind: 'WITHDRAW', direction: undefined }),
+          makeRaw({ id: 'create-1', kind: 'CREATE', direction: undefined }),
+        ],
+      },
+      walletAddress: WALLET,
+    });
+    expect(state.transactions[0]?.direction).toBe('IN');
+    expect(state.transactions[1]?.direction).toBe('OUT');
+
+    // An IN direction filter now actually matches derived rows.
+    const filtered = transactionHistoryReducer(state, {
+      type: 'SET_FILTER',
+      filter: { direction: 'IN' },
+    });
+    expect(selectFilteredTransactions(filtered).map((t) => t.id)).toEqual([
+      'withdraw-1',
+    ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // 4. Filtering, sorting and pagination
 // ---------------------------------------------------------------------------
 

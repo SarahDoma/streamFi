@@ -105,7 +105,16 @@ export interface TransactionHistoryState {
 
 export type TransactionHistoryAction =
   | { type: 'LOAD_START' }
-  | { type: 'LOAD_SUCCESS'; payload: unknown; receivedAt?: number }
+  | {
+      type: 'LOAD_SUCCESS';
+      payload: unknown;
+      receivedAt?: number;
+      /**
+       * Address of the connected wallet. Used to derive the viewer-relative
+       * `direction` of each row, since most indexers never emit one.
+       */
+      walletAddress?: string;
+    }
   | { type: 'LOAD_FAILURE'; error: unknown }
   | { type: 'SET_FILTER'; filter: Partial<TransactionFilters> }
   | { type: 'SET_PAGE'; page: unknown }
@@ -245,6 +254,42 @@ export function toErrorMessage(
 }
 
 // ---------------------------------------------------------------------------
+// Direction derivation
+// ---------------------------------------------------------------------------
+
+/**
+ * Derives the viewer-relative value direction from the transaction kind when
+ * the indexer does not emit an explicit `direction` (most don't — direction
+ * depends on which wallet is viewing the row, so it is not a property of the
+ * on-chain event).
+ *
+ * The connected wallet is threaded in so we only guess when it actually
+ * participates in the row, mirroring the ISSUE-566 guidance:
+ *
+ * - `WITHDRAW` — the wallet is the recipient → money flows **IN**.
+ * - `CREATE` / `TOP_UP` — the wallet is the sender → money flows **OUT**.
+ * - anything else (`PAUSE`, `RESUME`, `CANCEL`, `UNKNOWN`, …) → `UNKNOWN`.
+ *
+ * Returns `UNKNOWN` when there is no wallet (nothing to derive against) or
+ * when the kind carries no directional meaning.
+ */
+function deriveTransactionDirection(
+  kind: TransactionKind,
+  walletAddress: string,
+): TransactionDirection {
+  if (walletAddress.trim() === '') return 'UNKNOWN';
+  switch (kind) {
+    case 'WITHDRAW':
+      return 'IN';
+    case 'CREATE':
+    case 'TOP_UP':
+      return 'OUT';
+    default:
+      return 'UNKNOWN';
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Normalisation
 // ---------------------------------------------------------------------------
 
@@ -252,8 +297,16 @@ export function toErrorMessage(
  * Turns one raw indexer record into a fully-populated `TransactionRecord`.
  * Returns `null` for values that cannot possibly be a record (`null`,
  * primitives, arrays) so the caller can drop them.
+ *
+ * An explicit indexer `direction` is trusted when present; otherwise the
+ * `direction` is derived from the transaction `kind` relative to the connected
+ * `walletAddress` (see `deriveTransactionDirection`), falling back to
+ * `UNKNOWN`.
  */
-export function normalizeTransaction(raw: unknown): TransactionRecord | null {
+export function normalizeTransaction(
+  raw: unknown,
+  walletAddress?: string,
+): TransactionRecord | null {
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return null;
 
   const record = raw as Record<string, unknown>;
@@ -266,13 +319,22 @@ export function normalizeTransaction(raw: unknown): TransactionRecord | null {
   if (id === '' && hash === '') return null;
 
   const amountRaw = record['amount'] ?? record['value'] ?? record['ratePerSecond'];
+  const kind = asEnum(record['kind'] ?? record['type'], VALID_KINDS, 'UNKNOWN');
+  const explicitDirection = asEnum(
+    record['direction'],
+    VALID_DIRECTIONS,
+    'UNKNOWN',
+  );
 
   return {
     id: id === '' ? hash : id,
     hash,
     streamId: asString(record['streamId'] ?? record['stream_id']),
-    kind: asEnum(record['kind'] ?? record['type'], VALID_KINDS, 'UNKNOWN'),
-    direction: asEnum(record['direction'], VALID_DIRECTIONS, 'UNKNOWN'),
+    kind,
+    direction:
+      explicitDirection !== 'UNKNOWN'
+        ? explicitDirection
+        : deriveTransactionDirection(kind, asString(walletAddress)),
     status: asEnum(record['status'], VALID_STATUSES, 'UNKNOWN'),
     amount: asString(amountRaw, '0'),
     asset: asString(record['asset'] ?? record['token'] ?? record['symbol'], 'XLM'),
@@ -286,8 +348,15 @@ export function normalizeTransaction(raw: unknown): TransactionRecord | null {
 /**
  * Normalises a whole payload. Accepts the raw GraphQL `data` object, a bare
  * array, `null`, `undefined` or garbage — and always returns an array.
+ *
+ * When a `walletAddress` is provided it is forwarded to each row's
+ * `normalizeTransaction` so viewer-relative `direction` can be derived for
+ * indexers that do not emit it.
  */
-export function normalizeTransactions(payload: unknown): TransactionRecord[] {
+export function normalizeTransactions(
+  payload: unknown,
+  walletAddress?: string,
+): TransactionRecord[] {
   let list: unknown = payload;
 
   if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
@@ -314,7 +383,7 @@ export function normalizeTransactions(payload: unknown): TransactionRecord[] {
   const normalized: TransactionRecord[] = [];
 
   for (const entry of list) {
-    const record = normalizeTransaction(entry);
+    const record = normalizeTransaction(entry, walletAddress);
     if (record === null) continue;
     // De-duplicate on id so a refetch racing a poll cannot produce duplicate
     // React keys.
@@ -361,7 +430,10 @@ export function transactionHistoryReducer(
       return { ...current, loading: true, error: null };
 
     case 'LOAD_SUCCESS': {
-      const transactions = normalizeTransactions(action.payload);
+      const transactions = normalizeTransactions(
+        action.payload,
+        action.walletAddress,
+      );
       const totalPages = Math.max(
         1,
         Math.ceil(transactions.length / Math.max(1, current.pageSize)),
