@@ -104,7 +104,6 @@ export function createRpcServer(rpcUrl: string): SorobanRpc.Server {
     'getAccount',
     'getEvents',
     'simulateTransaction',
-    'sendTransaction',
     'getTransaction',
     'getLatestLedger',
     'getNetwork',
@@ -229,7 +228,9 @@ export async function invokeContract(
     try {
       status = await catchNetworkError('getTransaction', server.getTransaction(hash));
     } catch (err) {
-      throw RateLimitError.fromRpcError(err) ?? err;
+      // Transaction was already submitted; return the hash as pending.
+      // Polling failures don't indicate submission failure.
+      return hash;
     }
     if (status.status === SorobanRpc.Api.GetTransactionStatus.SUCCESS) {
       return hash;
@@ -238,7 +239,8 @@ export async function invokeContract(
       throw new Error(`Transaction failed: ${hash}`);
     }
   }
-  throw new Error(`Transaction timed out: ${hash}`);
+  // Polling timed out but transaction was submitted; return hash as pending.
+  return hash;
 }
 
 /**

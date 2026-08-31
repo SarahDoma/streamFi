@@ -12,6 +12,7 @@ const MAX_SAFE_U64 = 18446744073709551615n;
 
 interface QueueEntry {
   resolve: (value: NonceLock) => void;
+  reject: (error: Error) => void;
   cancelled: boolean;
 }
 
@@ -79,9 +80,10 @@ export class NonceManager {
    * out `acquireWithFallback`) never leaves the lock permanently held.
    */
   private enqueue(): { promise: Promise<NonceLock>; cancel: () => void } {
-    const entry: QueueEntry = { resolve: () => undefined, cancelled: false };
-    const promise = new Promise<NonceLock>((resolve) => {
+    const entry: QueueEntry = { resolve: () => undefined, reject: () => undefined, cancelled: false };
+    const promise = new Promise<NonceLock>((resolve, reject) => {
       entry.resolve = resolve;
+      entry.reject = reject;
     });
     this.lockQueue.push(entry);
     return { promise, cancel: () => { entry.cancelled = true; } };
@@ -112,8 +114,13 @@ export class NonceManager {
       next = this.lockQueue.shift();
     }
     if (next) {
-      const lock = this.nextNonce();
-      next.resolve(lock);
+      try {
+        const lock = this.nextNonce();
+        next.resolve(lock);
+      } catch (err) {
+        this.isLocked = false;
+        next.reject(err instanceof Error ? err : new Error(String(err)));
+      }
     } else {
       this.isLocked = false;
     }
