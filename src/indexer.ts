@@ -1,7 +1,24 @@
+import { IndexerTimeoutError } from './errors.js';
+
 export interface GraphQLQueryOptions {
   query: string;
   variables?: Record<string, unknown>;
   headers?: Record<string, string>;
+  /**
+   * Optional caller-supplied abort signal. When it fires, the in-flight
+   * `fetch` is aborted and `query()` rejects with the resulting `AbortError`.
+   * Use this to cancel a request from outside (e.g. when a component unmounts
+   * or the user navigates away). Note that this is on top of the default
+   * timeout — both surfaces can abort the request.
+   */
+  signal?: AbortSignal;
+  /**
+   * Timeout in milliseconds. When the indexer has not responded within this
+   * window the request is aborted and `query()` rejects with an
+   * {@link IndexerTimeoutError}. Defaults to 15_000ms (15s). Pass `0` or
+   * `Infinity` to disable the SDK timeout entirely.
+   */
+  timeoutMs?: number;
 }
 
 export interface GraphQLSubscriptionOptions {
@@ -28,6 +45,13 @@ interface GraphQLServerMessage {
   data?: unknown;
   errors?: unknown;
 }
+
+/**
+ * Default request timeout (ms) for {@link GraphQLIndexer.query}. Matches the
+ * 15s budget the dashboard assumes in its abort handling (see
+ * `dashboard/transaction-history.ts` and `examples/dashboard/.../apollo-client.ts`).
+ */
+export const DEFAULT_INDEXER_TIMEOUT_MS = 15_000;
 
 export class GraphQLIndexer {
   private endpoint: string;
@@ -69,20 +93,90 @@ export class GraphQLIndexer {
       throw new Error('Fetch API is not available in the current environment');
     }
 
-    const response = await fetchFn(this.endpoint, {
-      method: 'POST',
+    const response = await this.fetchWithTimeout(
+      fetchFn,
+      this.endpoint,
       headers,
-      body: JSON.stringify({
-        query: options.query,
-        variables,
-      }),
-    });
+      JSON.stringify({ query: options.query, variables }),
+      options.timeoutMs,
+      options.signal,
+    );
 
     if (!response.ok) {
       throw new Error(`GraphQL query failed with status ${response.status}: ${response.statusText}`);
     }
 
     return (await response.json()) as unknown;
+  }
+
+  /**
+   * Runs a single GraphQL POST against the indexer, combining the SDK's
+   * default timeout (or the caller's `timeoutMs`) with any caller-supplied
+   * `AbortSignal`. If the request does not complete within the time window
+   * the `AbortController` fires and the promise rejects with an
+   * {@link IndexerTimeoutError}; an externally-aborted request instead
+   * surfaces the underlying `AbortError`. See #569.
+   */
+  private async fetchWithTimeout(
+    fetchFn: typeof fetch,
+    endpoint: string,
+    headers: Record<string, string>,
+    body: string,
+    timeoutMs: number | undefined,
+    callerSignal?: AbortSignal,
+  ): Promise<Response> {
+    // `undefined` is a valid ECMA-262/TS number (Infinity); `0` and `NaN`
+    // both disable the timeout too. Cubed to a sane default otherwise.
+    const effectiveTimeout =
+      timeoutMs === undefined ? DEFAULT_INDEXER_TIMEOUT_MS : timeoutMs;
+    const useTimeout =
+      typeof effectiveTimeout === 'number' &&
+      Number.isFinite(effectiveTimeout) &&
+      effectiveTimeout > 0;
+
+    // If the caller already aborted, fail fast without issuing the request.
+    if (callerSignal?.aborted) {
+      throw new DOMException('The operation was aborted.', 'AbortError');
+    }
+
+    const controller = new AbortController();
+    const onCallerAbort = () => controller.abort();
+    if (callerSignal) {
+      if (callerSignal.aborted) {
+        // Handled above, but keep safety for races.
+        controller.abort();
+      } else {
+        callerSignal.addEventListener('abort', onCallerAbort, { once: true });
+      }
+    }
+
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    if (useTimeout) {
+      timer = setTimeout(() => controller.abort(), effectiveTimeout);
+    }
+
+    try {
+      return await fetchFn(endpoint, {
+        method: 'POST',
+        headers,
+        body,
+        signal: controller.signal,
+      });
+    } catch (err) {
+      if (useTimeout && controller.signal.aborted && !(callerSignal && callerSignal.aborted)) {
+        // The SDK's timeout aborted the request (and the caller's own signal
+        // was not the trigger), so report it as an indexer timeout.
+        throw new IndexerTimeoutError(endpoint, effectiveTimeout);
+      }
+      throw err;
+    } finally {
+      if (timer !== undefined) {
+        clearTimeout(timer);
+      }
+      if (callerSignal) {
+        callerSignal.removeEventListener('abort', onCallerAbort);
+      }
+    }
   }
 
   subscribe(options: GraphQLSubscriptionOptions): IndexerSubscription {
