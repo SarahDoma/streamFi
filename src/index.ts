@@ -10,12 +10,18 @@ export {
   buildBatchTransactions,
   buildBatchTransactionsSync,
   BatchBuildError,
+  submitBatch,
 } from './batch-tx.js';
 export type {
   BatchTransactionContext,
   BuiltBatchTransaction,
+  BatchSubmitResult,
+  BatchTxOutcome,
+  BatchTxStatus,
+  BatchSubmitOptions,
 } from './batch-tx.js';
-export { GraphQLIndexer } from './indexer.js';
+export { GraphQLIndexer, DEFAULT_INDEXER_TIMEOUT_MS } from './indexer.js';
+export type { GraphQLQueryOptions, GraphQLSubscriptionOptions, IndexerSubscription } from './indexer.js';
 export { KeypairSigner } from './signer.js';
 export type { Signer } from './signer.js';
 export {
@@ -28,6 +34,7 @@ export {
   InsufficientBalanceError,
   RateLimitError,
   RpcServiceUnavailableError,
+  IndexerTimeoutError,
   SUPPORTED_NETWORKS,
   CAIP2_TO_NETWORK,
   UNKNOWN_CONTRACT_ERROR_CODE,

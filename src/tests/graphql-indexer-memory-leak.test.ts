@@ -47,6 +47,7 @@ describe('GraphQLIndexer Memory Leak & Real Network I/O Tests', () => {
         'Accept': 'application/json',
       },
       body: JSON.stringify({ query: queryStr, variables }),
+      signal: expect.any(AbortSignal),
     });
     expect(result).toEqual(mockResponseData);
 
