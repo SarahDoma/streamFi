@@ -509,8 +509,18 @@ Issues a single GraphQL query as an HTTP POST and returns the parsed JSON respon
 | `query` | `string` | ✓ |
 | `variables` | `Record<string, unknown>` | |
 | `headers` | `Record<string, string>` | |
+| `timeoutMs` | `number` | |
+| `signal` | `AbortSignal` | |
 
-**Throws** if `query` is empty, or if the HTTP response is not `ok`.
+The request is wired to a per-request `AbortController`. If the indexer has not responded within
+`timeoutMs` (default `DEFAULT_INDEXER_TIMEOUT_MS`, 15_000) the fetch is aborted and `query()`
+rejects with an `IndexerTimeoutError` (whose `endpoint` and `timeoutMs` fields describe what
+timed out). Pass `timeoutMs: 0`/`Infinity` to disable the SDK timeout. A caller-supplied `signal`
+aborts the in-flight request and rejects with the underlying `AbortError` — use it to cancel on
+unmount or navigation.
+
+**Throws** if `query` is empty, if the HTTP response is not `ok`, or with an
+`IndexerTimeoutError` when the request exceeds `timeoutMs`.
 
 ### `subscribe(options) → IndexerSubscription`
 

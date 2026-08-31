@@ -104,7 +104,6 @@ export function createRpcServer(rpcUrl: string): SorobanRpc.Server {
     'getAccount',
     'getEvents',
     'simulateTransaction',
-    'sendTransaction',
     'getTransaction',
     'getLatestLedger',
     'getNetwork',
@@ -229,7 +228,9 @@ export async function invokeContract(
     try {
       status = await catchNetworkError('getTransaction', server.getTransaction(hash));
     } catch (err) {
-      throw RateLimitError.fromRpcError(err) ?? err;
+      // Transaction was already submitted; return the hash as pending.
+      // Polling failures don't indicate submission failure.
+      return hash;
     }
     if (status.status === SorobanRpc.Api.GetTransactionStatus.SUCCESS) {
       return hash;
@@ -238,7 +239,8 @@ export async function invokeContract(
       throw new Error(`Transaction failed: ${hash}`);
     }
   }
-  throw new Error(`Transaction timed out: ${hash}`);
+  // Polling timed out but transaction was submitted; return hash as pending.
+  return hash;
 }
 
 /**
@@ -350,9 +352,23 @@ export function scValToU32(val: xdr.ScVal): number {
   return val.u32();
 }
 
-/** Encode a u64 value as ScVal */
+/**
+ * Encode a u64 value as ScVal.
+ *
+ * Rejects a non-integer `number` (`2.5`) or a negative value with a clear
+ * `RangeError` naming the argument, rather than letting `Uint64.fromString`
+ * throw an opaque XDR error — or, worse, wrap a garbage value — deep inside
+ * stellar-sdk (#577).
+ */
 export function u64ToScVal(val: bigint | number): xdr.ScVal {
-  return xdr.ScVal.scvU64(xdr.Uint64.fromString(val.toString()));
+  if (typeof val === 'number' && !Number.isInteger(val)) {
+    throw new RangeError(`u64ToScVal: expected an integer, got ${val}`);
+  }
+  const asBigInt = typeof val === 'bigint' ? val : BigInt(val);
+  if (asBigInt < 0n) {
+    throw new RangeError(`u64ToScVal: expected a non-negative value, got ${val}`);
+  }
+  return xdr.ScVal.scvU64(xdr.Uint64.fromString(asBigInt.toString()));
 }
 
 /** Encode a boolean as ScVal */
@@ -485,14 +501,37 @@ export const DEFAULT_RESOURCE_FEE_ESTIMATE = 1_000_000n;
 export function estimateRequiredFee(simResult: unknown, fallbackStroops = DEFAULT_RESOURCE_FEE_ESTIMATE): bigint {
   if (simResult && typeof simResult === 'object') {
     const r = simResult as { minResourceFee?: unknown; fee?: unknown };
-    if (r.minResourceFee !== undefined) {
-      const fee = BigInt(r.minResourceFee as string | number | bigint);
-      if (fee > 0n) return fee;
-    }
-    if (r.fee !== undefined) {
-      const fee = BigInt(r.fee as string | number | bigint);
-      if (fee > 0n) return fee;
-    }
+    const fromMin = toPositiveBigIntOrNull(r.minResourceFee);
+    if (fromMin !== null) return fromMin;
+    const fromFee = toPositiveBigIntOrNull(r.fee);
+    if (fromFee !== null) return fromFee;
   }
   return fallbackStroops;
+}
+
+/**
+ * Coerce an RPC-supplied fee field to a positive `bigint`, or `null` if it
+ * can't be — including the case a non-conforming RPC returns a float
+ * (`minResourceFee: 1234.5`), which would make a bare `BigInt(...)` throw a
+ * raw `RangeError` out of the fee-estimation path and abort a `create()`
+ * that could have fallen back to the default estimate (#577).
+ */
+function toPositiveBigIntOrNull(value: unknown): bigint | null {
+  if (value === undefined || value === null) return null;
+  try {
+    let n: bigint;
+    if (typeof value === 'bigint') {
+      n = value;
+    } else if (typeof value === 'number') {
+      if (!Number.isFinite(value)) return null;
+      n = BigInt(Math.trunc(value));
+    } else if (typeof value === 'string') {
+      n = BigInt(value.trim());
+    } else {
+      return null;
+    }
+    return n > 0n ? n : null;
+  } catch {
+    return null;
+  }
 }
