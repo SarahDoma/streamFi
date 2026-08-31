@@ -10,10 +10,15 @@ export {
   buildBatchTransactions,
   buildBatchTransactionsSync,
   BatchBuildError,
+  submitBatch,
 } from './batch-tx.js';
 export type {
   BatchTransactionContext,
   BuiltBatchTransaction,
+  BatchSubmitResult,
+  BatchTxOutcome,
+  BatchTxStatus,
+  BatchSubmitOptions,
 } from './batch-tx.js';
 export { GraphQLIndexer } from './indexer.js';
 export { KeypairSigner } from './signer.js';
