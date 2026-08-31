@@ -5,6 +5,7 @@ All notable changes are documented here. Format based on [Keep a Changelog](http
 ## [Unreleased]
 
 ### Added
+- `GraphQLIndexer.query()` now accepts optional `timeoutMs` (default 15s) and `signal` on `GraphQLQueryOptions` and wires a per-request `AbortController` into the underlying `fetch`, so a hung/slow indexer no longer leaves the caller's `await` pending forever. On timeout it rejects with a `IndexerTimeoutError` (endpoint + `timeoutMs` exposed); a caller-supplied `signal` surfaces the underlying `AbortError`. `IndexerTimeoutError` and `DEFAULT_INDEXER_TIMEOUT_MS` are exported from the package entry point (#569).
 - `CAIP2_TO_NETWORK` is now exported — a single CAIP-2→network map shared by `ConduitClient`'s wallet-network check and `WalletConnectAdapter`'s construction-time validation, which previously kept independent verbatim copies (#445)
 - `NonceManager` (with its `NonceLock` / `NonceManagerOptions` types) is now exported from the package entry point; the bigint-based `src/nonce/NonceManager.ts` is the only implementation (#483)
 - `normalizeProgress(value)` utility (exported) — maps `streamProgress()`'s open-ended-stream `NaN` result to the midpoint `0.5`; `Module36` and `Module48` now share it instead of each reimplementing the check (#482)
