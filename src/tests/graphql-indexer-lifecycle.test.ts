@@ -343,6 +343,26 @@ describe('GraphQLIndexer.subscribe() — WebSocket transport', () => {
     expect(wsCtor).not.toHaveBeenCalled();
     indexer.cleanup();
   });
+
+  it('tears down immediately when maxReconnectAttempts is 0', () => {
+    const onError = vi.fn();
+    const indexer = new GraphQLIndexer(endpoint);
+    indexer.subscribe({
+      query: 'subscription { x }',
+      onData: () => {},
+      onError,
+      maxReconnectAttempts: 0,
+      reconnectDelayMs: 10,
+    });
+
+    mockWs.onclose!();
+
+    expect(onError).toHaveBeenCalledWith(
+      expect.objectContaining({ message: expect.stringMatching(/exhausted/i) }),
+    );
+    expect(indexer.getSubscriptionCount()).toBe(0);
+    expect(wsCtor).toHaveBeenCalledTimes(1);
+  });
 });
 
 // ── SSE / fetch fallback transport (used when no WebSocket is available) ──
