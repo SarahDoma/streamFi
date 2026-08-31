@@ -1,3 +1,4 @@
+import { ConduitError, UNKNOWN_CONTRACT_ERROR_CODE } from './errors.js';
 import { IndexerTimeoutError } from './errors.js';
 
 export interface GraphQLQueryOptions {
@@ -106,7 +107,26 @@ export class GraphQLIndexer {
       throw new Error(`GraphQL query failed with status ${response.status}: ${response.statusText}`);
     }
 
-    return (await response.json()) as unknown;
+    const body = (await response.json()) as {
+      data?: unknown;
+      errors?: unknown[];
+    };
+
+    if (Array.isArray(body?.errors) && body.errors.length > 0) {
+      const messages = body.errors
+        .map((error) => {
+          if (error && typeof error === 'object' && 'message' in error) {
+            const message = (error as { message?: unknown }).message;
+            return typeof message === 'string' && message.length > 0 ? message : JSON.stringify(error);
+          }
+          return String(error);
+        })
+        .filter((message) => message.length > 0);
+
+      throw new ConduitError('stream', UNKNOWN_CONTRACT_ERROR_CODE, messages.join('; '));
+    }
+
+    return body?.data;
   }
 
   /**

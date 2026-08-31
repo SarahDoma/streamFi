@@ -70,6 +70,28 @@ describe('GraphQLIndexer Memory Leak & Real Network I/O Tests', () => {
     indexer.cleanup();
   });
 
+  it('throws when a GraphQL response contains query-level errors despite HTTP 200', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        data: null,
+        errors: [
+          { message: 'Cannot query field "doesNotExist" on type "Query".' },
+          { message: 'Resolver error: boom' },
+        ],
+      }),
+    } as Response);
+
+    const indexer = new GraphQLIndexer(endpoint);
+
+    await expect(indexer.query({ query: 'query { doesNotExist }' })).rejects.toThrow(
+      'Cannot query field "doesNotExist" on type "Query".'
+    );
+
+    indexer.cleanup();
+  });
+
   it('subscribes and properly cleans up active subscriptions on unsubscribe()', async () => {
     const indexer = new GraphQLIndexer(endpoint);
 
